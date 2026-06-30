@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Carcasse &amp; Compo — Louis XV</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<!-- Firebase SDK -->
+<script type="module" id="firebase-init">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import { getFirestore, doc, setDoc, onSnapshot, getDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCYehmVzuF5r85osR2MTvo9zoB1WCAMVCg",
+    authDomain: "carcasse-et-compo.firebaseapp.com",
+    projectId: "carcasse-et-compo",
+    storageBucket: "carcasse-et-compo.firebasestorage.app",
+    messagingSenderId: "1094065123855",
+    appId: "1:1094065123855:web:5c592f536d8230a2bca97a"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  // Expose globally for React
+  window.__firebase = { auth, db, signInWithEmailAndPassword, signOut, onAuthStateChanged, doc, setDoc, onSnapshot, getDoc };
+</script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:#f5f4f0;font-family:system-ui,sans-serif;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback}=React;
+
+// ─── Firebase helpers (loaded via module above) ───────────────────────────────
+function getFirebase(){return window.__firebase||null;}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+const SALLE=['AQUA','AS','2','2B','3','3B','4','5','5B','6','7','7B','9','10','11','12'];
+const TERRASSE=['15','16','17','18','19','20','21','22'];
+const PLATEAUX=[100,120,140,180,200];
+const NAPPE_MAP={140:220,180:260,200:280};
+const NAPPE_COUNT=[0,2,3,5,6,8,9];
+const LINGE_NAPPE_MAP={100:180,120:200,140:220,180:260,200:280};
+const STORAGE_KEY='carcasse_v6';
+const ROLE_ORDER=["Maître d'Hôtel",'Chef de rang','Cheffe de rang','Commis de rang','Chargée de clientèle','Chargé de clientèle'];
+const PL='\u00d8';
+const PLATEAU_COLORS={
+  100:{bg:'#e8f2ff',border:'#93c5fd',nc:'#1e3a8a',ic:'#1e3a8a'},
+  120:{bg:'#bfdbfe',border:'#3b82f6',nc:'#1e3a8a',ic:'#1e3a8a'},
+  140:{bg:'#f5f3ff',border:'#c4b5fd',nc:'#4c1d95',ic:'#4c1d95'},
+  180:{bg:'#fef9ec',border:'#fcd34d',nc:'#78350f',ic:'#78350f'},
+  200:{bg:'#fee2e2',border:'#fca5a5',nc:'#7f1d1d',ic:'#7f1d1d'},
+};
+
+const INITIAL_TEAM=[
+  {id:'michele',name:'Michele',role:"Maître d'Hôtel",gender:'m'},
+  {id:'jv',name:'JV',role:"Maître d'Hôtel",gender:'m'},
+  {id:'quentin',name:'Quentin',role:"Maître d'Hôtel",gender:'m'},
+  {id:'jorgen',name:'Jorgen',role:"Maître d'Hôtel",gender:'m'},
+  {id:'clara',name:'Clara',role:'Cheffe de rang',gender:'f'},
+  {id:'erika',name:'Erika',role:'Cheffe de rang',gender:'f'},
+  {id:'eva',name:'Eva',role:'Cheffe de rang',gender:'f'},
+  {id:'polina',name:'Polina',role:'Cheffe de rang',gender:'f'},
+  {id:'maxime',name:'Maxime',role:'Commis de rang',gender:'m'},
+  {id:'gauthier',name:'Gauthier',role:'Commis de rang',gender:'m'},
+  {id:'carla',name:'Carla',role:'Commis de rang',gender:'f'},
+  {id:'chloe',name:'Chloé',role:'Commis de rang',gender:'f'},
+  {id:'nolan',name:'Nolan',role:'Commis de rang',gender:'m'},
+  {id:'baptiste',name:'Baptiste',role:'Commis de rang',gender:'m'},
+  {id:'valentin',name:'Valentin',role:'Commis de rang',gender:'m'},
+  {id:'violetta',name:'Violetta',role:'Commis de rang',gender:'f'},
+  {id:'victoria',name:'Victoria',role:'Chargée de clientèle',gender:'f'},
+  {id:'pauline',name:'Pauline',role:'Chargée de clientèle',gender:'f'},
+];
+
+const FIXED_ZONES=['Accueil','Meuble','Tournant','Passe','Out'];
+
+const DEFAULT_SERVICES=[
+  {id:'mar-d',label:'Mardi Dîner'},
+  {id:'mer-d',label:'Mercredi Dîner'},
+  {id:'jeu-d',label:'Jeudi Dîner'},
+  {id:'ven-dj',label:'Vendredi Déjeuner'},
+  {id:'ven-d',label:'Vendredi Dîner'},
+  {id:'sam-dj',label:'Samedi Déjeuner'},
+  {id:'sam-d',label:'Samedi Dîner'},
+  {id:'mar-d-next',label:'Mardi suivant',nextWeek:true},
+];
+
+const ALL_POSSIBLE=[
+  {id:'mar-dj',label:'Mardi Déjeuner',after:null,before:'mar-d'},
+  {id:'mar-d',label:'Mardi Dîner',after:'mar-dj',before:'mer-d'},
+  {id:'mer-dj',label:'Mercredi Déjeuner',after:'mar-d',before:'mer-d'},
+  {id:'mer-d',label:'Mercredi Dîner',after:'mer-dj',before:'jeu-d'},
+  {id:'jeu-dj',label:'Jeudi Déjeuner',after:'mer-d',before:'jeu-d'},
+  {id:'jeu-d',label:'Jeudi Dîner',after:'jeu-dj',before:'ven-dj'},
+  {id:'ven-dj',label:'Vendredi Déjeuner',after:'jeu-d',before:'ven-d'},
+  {id:'ven-d',label:'Vendredi Dîner',after:'ven-dj',before:'sam-dj'},
+  {id:'sam-dj',label:'Samedi Déjeuner',after:'ven-d',before:'sam-d'},
+  {id:'sam-d',label:'Samedi Dîner',after:'sam-dj',before:'dim-dj'},
+  {id:'dim-dj',label:'Dimanche Déjeuner',after:'sam-d',before:'dim-d'},
+  {id:'dim-d',label:'Dimanche Dîner',after:'dim-dj',before:'mar-d-next'},
+];
+
+const ORDER=ALL_POSSIBLE.map(x=>x.id);
+const LINE_BREAKS_BEFORE=['ven-dj','sam-dj','mar-d-next'];
+
+const mk=(c,pl)=>({covers:c,plateau:pl,isConsole:false});
+const mkoff=()=>({covers:0,plateau:null,isConsole:false});
+const dc=o=>JSON.parse(JSON.stringify(o));
+
+const DEF_SALLE={AQUA:mk(2,120),AS:mk(2,120),'2':mk(2,100),'2B':mkoff(),'3':mk(4,120),'3B':mkoff(),'4':mk(2,120),'5':mk(2,120),'5B':mkoff(),'6':mk(2,120),'7':mk(2,100),'7B':mk(4,120),'9':mk(2,100),'10':mk(2,100),'11':mk(2,100),'12':mk(2,100)};
+const DEF_TERRASSE={'15':mk(4,120),'16':mk(2,100),'17':mk(4,120),'18':mk(2,100),'19':mkoff(),'20':mkoff(),'21':mkoff(),'22':mkoff()};
+const TER_SALLE={AQUA:mk(4,120),AS:mk(2,120),'2':mk(2,100),'2B':mkoff(),'3':mk(4,120),'3B':mkoff(),'4':mk(2,120),'5':mk(2,120),'5B':mkoff(),'6':mk(2,120),'7':mk(2,100),'7B':mk(4,120),'9':mk(2,100),'10':mk(2,100),'11':mkoff(),'12':mkoff()};
+const TER_TERRASSE={'15':mk(4,120),'16':mk(2,100),'17':mk(2,120),'18':mk(2,100),'19':mk(4,120),'20':mk(2,100),'21':mk(2,100),'22':mk(2,100)};
+
+function buildDefault(services){const tables={};services.forEach(s=>{tables[s.id]={};SALLE.forEach(tn=>{tables[s.id][tn]=dc(DEF_SALLE[tn]);});TERRASSE.forEach(tn=>{tables[s.id][tn]=dc(DEF_TERRASSE[tn]);});});return tables;}
+function buildEmptyCompo(){return{rangs:[],zones:{Accueil:{active:true,memberIds:[]},Meuble:{active:false,memberIds:[]},Tournant:{active:false,memberIds:[]},Passe:{active:false,memberIds:[]},Out:{active:false,memberIds:[]}},extraZones:[]};}
+function defaultPlateau(c){if(c<=2)return 100;if(c<=4)return 120;if(c<=6)return 140;if(c<=8)return 180;return 200;}
+function suggestPlateau(tn,c,svcData){if(tn==='AQUA')return 120;if(c<=0)return null;if(tn==='4'){const t3B=svcData&&svcData['3B'];if(t3B&&t3B.covers>0)return 100;return c<=4?120:defaultPlateau(c);}if(tn==='6'){const t7B=svcData&&svcData['7B'];const t7=svcData&&svcData['7'];if(t7B&&t7B.covers>4&&t7&&t7.covers>0&&!t7.isConsole)return 100;}const T120=['AS','3','5','6','7B','15','17','19'];if(T120.includes(tn)&&c<=4)return 120;return defaultPlateau(c);}
+function piedFromPlateau(pl){return pl<=140?'petit':'gros';}
+function getCavallino(tn,c){if(tn==='AQUA')return 0;if(c<=0)return 0;if(c<=2)return 1;if(c<=4)return 2;if(c<=6)return 3;if(c<=8)return 4;if(c<=10)return 5;return 6;}
+function nappesForCount(n){if(n<=0)return 0;if(n>6)n=6;return NAPPE_COUNT[n];}
+function countNappes(svcData){const cnt={140:0,180:0,200:0};[...SALLE,...TERRASSE].forEach(tn=>{const d=svcData[tn];if(d&&d.covers>0&&d.plateau&&NAPPE_MAP[d.plateau])cnt[d.plateau]++;});return{n220:nappesForCount(cnt[140]),n260:nappesForCount(cnt[180]),n280:nappesForCount(cnt[200])};}
+
+function computeTransfers(upList,dnList){const upQ=upList.map(x=>({...x})),dnQ=dnList.map(x=>({...x})),transfers=[];const isSl=tn=>SALLE.includes(tn),isTr=tn=>TERRASSE.includes(tn);const sz=(a,b)=>(isSl(a)&&isSl(b))||(isTr(a)&&isTr(b));for(let pass=0;pass<2;pass++){for(let i=0;i<upQ.length;i++){if(!upQ[i].n)continue;for(let j=0;j<dnQ.length;j++){if(!dnQ[j].n)continue;if(pass===0&&!sz(upQ[i].tn,dnQ[j].tn))continue;const give=Math.min(upQ[i].n,dnQ[j].n);if(give>0)transfers.push({from:dnQ[j].tn,to:upQ[i].tn,n:give});upQ[i].n-=give;dnQ[j].n-=give;if(!upQ[i].n)break;}}}return{transfers,netUp:upQ.filter(x=>x.n>0),netDn:dnQ.filter(x=>x.n>0)};}
+
+function match1to1(neededList,releasedList,matchKey){const nedQ=neededList.map(x=>({...x,used:false})),relQ=releasedList.map(x=>({...x,used:false}));const transfers=[],usedTo={},usedFrom={};const isSl=tn=>SALLE.includes(tn),isTr=tn=>TERRASSE.includes(tn);const sz=(a,b)=>(isSl(a)&&isSl(b))||(isTr(a)&&isTr(b));for(let pass=0;pass<2;pass++){for(let i=0;i<nedQ.length;i++){const ned=nedQ[i];if(ned.used)continue;for(let j=0;j<relQ.length;j++){const rel=relQ[j];if(rel.used)continue;if(rel[matchKey]!==ned[matchKey])continue;if(rel.tn===ned.tn)continue;if(pass===0&&!sz(rel.tn,ned.tn))continue;if(usedTo[ned.tn]||usedFrom[rel.tn])continue;const item={fromTn:rel.tn,toTn:ned.tn,[matchKey]:rel[matchKey]};if(rel.pied!==undefined)item.pied=rel.pied;transfers.push(item);usedTo[ned.tn]=true;usedFrom[rel.tn]=true;rel.used=true;ned.used=true;break;}}}return{transfers,ascents:nedQ.filter(x=>!x.used),descents:relQ.filter(x=>!x.used)};}
+
+function getSalleEmpireData(tables,depId,interId,arrId){
+  const depSvc=tables[depId],interSvc=tables[interId],arrSvc=tables[arrId];
+  if(!depSvc||!interSvc||!arrSvc)return null;
+  const allT=[...SALLE,...TERRASSE];
+
+  const plCount=svc=>{const m={};allT.forEach(tn=>{const d=svc[tn];if(d&&d.covers>0&&d.plateau)m[d.plateau]=(m[d.plateau]||0)+1;});return m;};
+  const piedCount=svc=>{let p=0,g=0;allT.forEach(tn=>{const d=svc[tn];if(d&&d.covers>0&&d.plateau){if(piedFromPlateau(d.plateau)==='petit')p++;else g++;}});return{petit:p,gros:g};};
+  const fCount=svc=>{let n=0;allT.forEach(tn=>{const d=svc[tn];if(d&&d.covers>0&&!d.isConsole)n+=d.covers;});return n;};
+  const cCount=svc=>{let n=0;allT.forEach(tn=>{const d=svc[tn];if(d&&d.covers>0&&!d.isConsole)n+=getCavallino(tn,d.covers);});return n;};
+
+  const Dpl=plCount(depSvc),Mpl=plCount(interSvc),Jpl=plCount(arrSvc);
+  const Dp=piedCount(depSvc),Mp=piedCount(interSvc),Jp=piedCount(arrSvc);
+  const Df=fCount(depSvc),Mf=fCount(interSvc),Jf=fCount(arrSvc);
+  const Dc=cCount(depSvc),Mc=cCount(interSvc),Jc=cCount(arrSvc);
+
+  // Logique globale par taille :
+  // D soir : ajuster salle pour arriver à M
+  //   salleReserve = max(0, D-M)  → trop en salle
+  //   reserveSalle = max(0, M-D)  → manque en salle
+  // Inter soir : on a M en salle, on doit préparer J
+  //   Ce qui reste en place : min(M, J) reste stable (pas de mouvement)
+  //   Ce qui est en M mais pas utile en J : M - min(M,J) = max(0,M-J) → réserve ou Empire
+  //   Ce qui manque pour J : max(0, J-M) → vient de la réserve vers Empire
+  //   De la salle vers Empire : max(0, M - min(M,J)) mais seulement si J en a besoin
+  //     = si M > J : (M-J) vont en réserve (après inter)
+  //     = si J > M : (J-M) viennent de la réserve
+  //     = si M = J : 0 mouvement inter soir
+  //   Mais attention : "Salle→Salle Empire" = pièces qui partent de la salle MARDI soir
+  //   pour aller directement en Empire, sans passer par la réserve.
+  //   Cela arrive quand D > M (surplus mardi) ET J en a besoin : min(D-M, J-M) si J>M
+  //   Sinon tout le surplus D→M va en réserve.
+
+  const calcFlux=(D,M,J)=>{
+    // D soir mouvements
+    const surplusD=Math.max(0,D-M); // en trop mardi vs mercredi
+    const manqueD=Math.max(0,M-D);  // manque mardi vs mercredi
+    const reserveSalle=manqueD;     // R→Salle mardi soir
+
+    // De ce surplus de mardi, combien peuvent aller directement en Empire ?
+    const manqueJ=Math.max(0,J-M); // ce qui manque pour jeudi vs mercredi
+    const salleEmpire=Math.min(surplusD,manqueJ); // surplus D utilisable pour J → Empire direct
+    const salleReserve=surplusD-salleEmpire;       // reste du surplus → réserve mardi soir
+
+    // Inter soir mouvements
+    // Après mardi, en salle il y a M. Pour jeudi on a besoin de J.
+    const surplusM=Math.max(0,M-J);     // trop en salle vs jeudi
+    const salleReserveSwap=surplusM;    // descend réserve mercredi soir
+    const reserveEmpire=Math.max(0,J-M-salleEmpire); // manque encore pour J → R→Empire mercredi soir
+
+    return{salleEmpire,salleReserve,reserveSalle,reserveEmpire,salleReserveSwap};
+  };
+
+  const plMvt={};
+  const allPl=[...new Set([...Object.keys(Dpl),...Object.keys(Mpl),...Object.keys(Jpl)].map(Number))].sort((a,b)=>a-b);
+  allPl.forEach(pl=>{
+    const r=calcFlux(Dpl[pl]||0,Mpl[pl]||0,Jpl[pl]||0);
+    if(r.salleEmpire||r.salleReserve||r.reserveSalle||r.reserveEmpire||r.salleReserveSwap)plMvt[pl]=r;
+  });
+
+  const piedMvt={};
+  ['petit','gros'].forEach(p=>{
+    const r=calcFlux(Dp[p]||0,Mp[p]||0,Jp[p]||0);
+    if(r.salleEmpire||r.salleReserve||r.reserveSalle||r.reserveEmpire||r.salleReserveSwap)piedMvt[p]=r;
+  });
+
+  const fMvt=calcFlux(Df,Mf,Jf);
+  const cMvt=calcFlux(Dc,Mc,Jc);
+  return{plMvt,piedMvt,fMvt,cMvt};
+}
+
+function getMvtData(tables,services,currentService){
+  const idx=services.findIndex(s=>s.id===currentService);let prevId=null;
+  if(currentService==='mar-d-next')prevId='sam-d';else if(idx>0)prevId=services[idx-1].id;
+  if(!prevId)return null;
+  const prevSvc=tables[prevId],currSvc=tables[currentService];if(!prevSvc||!currSvc)return null;
+  const allT=[...SALLE,...TERRASSE];const cN=countNappes(currSvc);
+  const plNeeded=[],plReleased=[],piedNeeded=[],piedReleased=[],fauteuilsUp=[],fauteuilsDn=[],cavallinoUp=[],cavallinoDn=[];
+  allT.forEach(tn=>{const pd=prevSvc[tn]||null,cd=currSvc[tn]||null;const pAct=pd&&pd.covers>0,cAct=cd&&cd.covers>0;const pPl=pAct?pd.plateau:null,cPl=cAct?cd.plateau:null;const pCons=pAct&&pd.isConsole,cCons=cAct&&cd.isConsole;const pPied=pPl?piedFromPlateau(pPl):null,cPied=cPl?piedFromPlateau(cPl):null;if(pAct&&!cAct){if(pPl)plReleased.push({tn,pl:pPl,pied:pPied});piedReleased.push({tn,pied:pPied});}else if(!pAct&&cAct){if(cPl)plNeeded.push({tn,pl:cPl,pied:cPied});piedNeeded.push({tn,pied:cPied});}else if(pAct&&cAct){if(pPl!==cPl){if(pPl)plReleased.push({tn,pl:pPl,pied:pPied});if(cPl)plNeeded.push({tn,pl:cPl,pied:cPied});}if(pPied!==cPied){piedReleased.push({tn,pied:pPied});piedNeeded.push({tn,pied:cPied});}}if(pAct&&!cAct){if(!pCons){fauteuilsDn.push({tn,n:pd.covers});const cv=getCavallino(tn,pd.covers);if(cv>0)cavallinoDn.push({tn,n:cv});}}else if(!pAct&&cAct){if(!cCons){fauteuilsUp.push({tn,n:cd.covers});const cv=getCavallino(tn,cd.covers);if(cv>0)cavallinoUp.push({tn,n:cv});}}else if(pAct&&cAct){if(!pCons&&!cCons){const df=cd.covers-pd.covers;if(df>0)fauteuilsUp.push({tn,n:df});if(df<0)fauteuilsDn.push({tn,n:-df});}else if(pCons&&!cCons)fauteuilsUp.push({tn,n:cd.covers});else if(!pCons&&cCons)fauteuilsDn.push({tn,n:pd.covers});const pc=getCavallino(tn,pCons?0:pd.covers),cc=getCavallino(tn,cCons?0:cd.covers);if(cc>pc)cavallinoUp.push({tn,n:cc-pc});if(pc>cc)cavallinoDn.push({tn,n:pc-cc});}});
+  const plR=match1to1(plNeeded,plReleased,'pl');const piR=match1to1(piedNeeded,piedReleased,'pied');const fTr=computeTransfers(fauteuilsUp,fauteuilsDn);const cTr=computeTransfers(cavallinoUp,cavallinoDn);
+  // Batteries: only for the last service before mar-d-next
+  // = number of active tables (covers>0) in mar-d-next, 1 battery per table regardless of pied or OFF
+  let batteries=0;
+  const marNextSvc=tables['mar-d-next'];
+  const isLastBeforeNext=currentService==='sam-d'||(()=>{const idx2=services.findIndex(s=>s.id===currentService);const nextSvc=services[idx2+1];return nextSvc&&nextSvc.id==='mar-d-next';})();
+  if(isLastBeforeNext&&marNextSvc){[...SALLE,...TERRASSE].forEach(tn=>{const d=marNextSvc[tn];if(d&&d.covers>0)batteries++;});}
+  return{plAscents:plR.ascents,plDescents:plR.descents,plTransfers:plR.transfers,piedAscents:piR.ascents,piedDescents:piR.descents,piedTransfers:piR.transfers,fTr,cTr,upN220:cN.n220,upN260:cN.n260,upN280:cN.n280,batteries,prevLabel:services.find(s=>s.id===prevId)?.label??prevId};
+}
+
+function getLingeData(tables,services){
+  const WK_IDS=['mar-d','mer-d','jeu-d','ven-dj','ven-d','sam-dj','sam-d'];const VENDSAM=['ven-dj','ven-d','sam-dj','sam-d'];
+  const extraIds=services.filter(s=>s.extra).map(s=>s.id);const allIds=[...WK_IDS,...extraIds].filter(id=>services.some(s=>s.id===id));
+  function countLN(sd){const cnt={180:0,200:0,220:0,260:0,280:0};[...SALLE,...TERRASSE].forEach(tn=>{const d=sd[tn];if(d&&d.covers>0&&d.plateau&&LINGE_NAPPE_MAP[d.plateau])cnt[LINGE_NAPPE_MAP[d.plateau]]++;});return cnt;}
+  let wkF=0,vsF=0;const wkN={180:0,200:0,220:0,260:0,280:0},vsN={180:0,200:0,220:0,260:0,280:0};
+  allIds.forEach(id=>{const sd=tables[id];if(!sd)return;let f=0;[...SALLE,...TERRASSE].forEach(tn=>{const d=sd[tn];if(d&&d.covers>0&&!d.isConsole)f+=d.covers;});const cn=countLN(sd);wkF+=f;[180,200,220,260,280].forEach(k=>{wkN[k]+=cn[k];});const isVS=VENDSAM.includes(id)||services.some(s=>s.id===id&&s.extra);if(isVS){vsF+=f;[180,200,220,260,280].forEach(k=>{vsN[k]+=cn[k];});}});
+  return{wkF,vsF,wkN,vsN};
+}
+
+function sortMembers(members){return[...members].sort((a,b)=>{const ra=ROLE_ORDER.indexOf(a.role),rb=ROLE_ORDER.indexOf(b.role);if(ra!==rb)return(ra===-1?99:ra)-(rb===-1?99:rb);if(a.id==='victoria')return -1;if(b.id==='victoria')return 1;return a.name.localeCompare(b.name);});}
+
+// ─── UI Components ────────────────────────────────────────────────────────────
+function TnLabel({tn}){const label=tn==='AQUA'?"l'Aqua":tn==='AS'?"l'AS":'la '+tn;return <span style={{fontWeight:700,textDecoration:'underline',color:'#1a1a1a'}}>{label}</span>;}
+function Bold({children}){return <span style={{fontWeight:700,color:'#1a1a1a'}}>{children}</span>;}
+function Line({children}){return <div style={{lineHeight:1.6,fontSize:12,color:'#1a1a1a'}}>{children}</div>;}
+function Section({label,bg,color,children}){return <div style={{marginBottom:6}}><div style={{display:'inline-block',background:bg,color,fontSize:10,padding:'2px 8px',borderRadius:4,fontWeight:700,marginBottom:3,letterSpacing:'.04em'}}>{label}</div><div style={{display:'flex',flexDirection:'column',gap:2,paddingLeft:4}}>{children}</div></div>;}
+function TotCard({label,bg,children}){return <div style={{background:bg,borderRadius:8,display:'flex',flexDirection:'column',alignItems:'center',overflow:'hidden'}}><div style={{fontSize:10,fontWeight:500,color:'#888',padding:'8px 6px 4px',width:'100%',textAlign:'center'}}>{label}</div>{children}</div>;}
+function RoleBadge({role}){const colors={"Maître d'Hôtel":{bg:'#ede9fe',color:'#5b21b6'},'Chef de rang':{bg:'#dbeafe',color:'#1e40af'},'Cheffe de rang':{bg:'#dbeafe',color:'#1e40af'},'Commis de rang':{bg:'#f0fdf4',color:'#166534'},'Chargée de clientèle':{bg:'#fef3c7',color:'#92400e'},'Chargé de clientèle':{bg:'#fef3c7',color:'#92400e'}};const c=colors[role]||{bg:'#f5f4f0',color:'#555'};return <span style={{fontSize:9,padding:'1px 5px',borderRadius:3,background:c.bg,color:c.color,fontWeight:600}}>{role}</span>;}
+
+function EmpireFluxBloc({title,bg,bc,rows}){if(!rows.length)return null;return(<div style={{background:bg,borderRadius:8,padding:10,border:'0.5px solid '+bc}}><div style={{fontSize:10,fontWeight:700,color:bc,marginBottom:6,textTransform:'uppercase',letterSpacing:'.04em'}}>{title}</div>{rows.map((r,i)=><div key={i} style={{fontSize:12,color:'#1a1a1a',lineHeight:1.7}}>{r}</div>)}</div>);}
+function EmpireRecapBloc({title,bc,rows}){if(!rows.length)return null;return(<div style={{background:'#f0f9ff',borderRadius:8,padding:10,border:'1px solid '+bc,marginTop:2}}><div style={{fontSize:10,fontWeight:700,color:bc,marginBottom:6,textTransform:'uppercase',letterSpacing:'.04em'}}>{title}</div>{rows.map((r,i)=><div key={i} style={{fontSize:12,color:'#1a1a1a',lineHeight:1.7}}>{r}</div>)}</div>);}
+
+function buildFluxRows(fluxKey,plMvt,piedMvt,fMvt,cMvt){
+  const rows=[];
+  ['petit','gros'].forEach(p=>{const m=piedMvt[p];if(m&&m[fluxKey]>0){const n=m[fluxKey];const label=p==='gros'?(n>1?'gros pieds':'gros pied'):(n>1?'petits pieds':'petit pied');rows.push(`${n} ${label}`);}});
+  [100,120,140,180,200].forEach(pl=>{const m=plMvt[pl];if(m&&m[fluxKey]>0){const n=m[fluxKey];rows.push(`${n} plateau${n>1?'x':''} ${PL}${pl}`);}});
+  if(fMvt&&fMvt[fluxKey]>0){const n=fMvt[fluxKey];rows.push(`${n} fauteuil${n>1?'s':''}`);}
+  if(cMvt&&cMvt[fluxKey]>0){const n=cMvt[fluxKey];rows.push(`${n} cavallino`);}
+  return rows;
+}
+
+function SalleEmpireBlock({tables,services,currentService}){
+  const [on,setOn]=useState(false);const [inter,setInter]=useState('');const [arr,setArr]=useState('');
+  const data=(on&&inter&&arr)?getSalleEmpireData(tables,currentService,inter,arr):null;
+  const arrLabel=services.find(s=>s.id===arr)?.label??'';const interLabel=services.find(s=>s.id===inter)?.label??'';
+  return(
+    <div style={{border:'0.5px solid '+(on?'#f59e0b':'#d4d2c8'),borderRadius:12,padding:12,background:on?'#fffbeb':'#fff'}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:on?10:0}}>
+        <div style={{fontSize:13,fontWeight:500,flex:1}}>Salle Empire</div>
+        <button onClick={()=>setOn(!on)} style={{fontSize:11,padding:'3px 12px',borderRadius:10,border:'none',cursor:'pointer',background:on?'#f59e0b':'#e5e7eb',color:on?'#fff':'#555',fontWeight:600}}>{on?'ON':'OFF'}</button>
+      </div>
+      {on&&(<div style={{display:'flex',flexDirection:'column',gap:8}}>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+          <div><div style={{fontSize:10,color:'#888',marginBottom:3}}>Service intermédiaire</div>
+            <select value={inter} onChange={e=>setInter(e.target.value)} style={{width:'100%',fontSize:12,padding:'5px 8px',borderRadius:6,border:'0.5px solid #ccc',background:'#fff'}}>
+              <option value="">-- choisir --</option>
+              {services.filter(s=>s.id!==currentService&&s.id!==arr).map(s=><option key={s.id} value={s.id}>{s.label}</option>)}
+            </select></div>
+          <div><div style={{fontSize:10,color:'#888',marginBottom:3}}>Service d'arrivée</div>
+            <select value={arr} onChange={e=>setArr(e.target.value)} style={{width:'100%',fontSize:12,padding:'5px 8px',borderRadius:6,border:'0.5px solid #ccc',background:'#fff'}}>
+              <option value="">-- choisir --</option>
+              {services.filter(s=>s.id!==currentService&&s.id!==inter).map(s=><option key={s.id} value={s.id}>{s.label}</option>)}
+            </select></div>
+        </div>
+        {(!inter||!arr)&&<div style={{fontSize:12,color:'#aaa',fontStyle:'italic'}}>Choisissez les deux services.</div>}
+        {data&&(()=>{
+          const{plMvt,piedMvt,fMvt,cMvt}=data;
+          const rowsS2E=buildFluxRows('salleEmpire',plMvt,piedMvt,fMvt,cMvt);
+          const rowsS2R=buildFluxRows('salleReserve',plMvt,piedMvt,fMvt,cMvt);
+          const rowsS2RSwap=buildFluxRows('salleReserveSwap',plMvt,piedMvt,null,null);
+          const rowsR2S=buildFluxRows('reserveSalle',plMvt,piedMvt,fMvt,cMvt);
+          const rowsR2E=buildFluxRows('reserveEmpire',plMvt,piedMvt,fMvt,cMvt);
+          const recapRows=[];
+          ['petit','gros'].forEach(p=>{const se=(piedMvt[p]?.salleEmpire||0)+(piedMvt[p]?.reserveEmpire||0);if(se>0){const label=p==='gros'?(se>1?'gros pieds':'gros pied'):(se>1?'petits pieds':'petit pied');recapRows.push(`${se} ${label}`);}});
+          [100,120,140,180,200].forEach(pl=>{const se=(plMvt[pl]?.salleEmpire||0)+(plMvt[pl]?.reserveEmpire||0);if(se>0)recapRows.push(`${se} plateau${se>1?'x':''} ${PL}${pl}`)});
+          const fTot=(fMvt.salleEmpire||0)+(fMvt.reserveEmpire||0);if(fTot>0)recapRows.push(`${fTot} fauteuil${fTot>1?'s':''}`);
+          const cTot=(cMvt.salleEmpire||0)+(cMvt.reserveEmpire||0);if(cTot>0)recapRows.push(`${cTot} cavallino`);
+          return(<div style={{display:'flex',flexDirection:'column',gap:6}}>
+            <EmpireFluxBloc title={'Salle → Salle Empire (pour '+arrLabel+')'} bg="#fffbeb" bc="#f59e0b" rows={rowsS2E}/>
+            <EmpireFluxBloc title={'Salle → Réserve (après '+interLabel+')'} bg="#fee2e2" bc="#ef4444" rows={rowsS2RSwap}/>
+            <EmpireFluxBloc title={'Salle → Réserve (après départ)'} bg="#fee2e2" bc="#ef4444" rows={rowsS2R}/>
+            <EmpireFluxBloc title={'Réserve → Salle (pour '+interLabel+')'} bg="#f0fdf4" bc="#22c55e" rows={rowsR2S}/>
+            <EmpireFluxBloc title={'Réserve → Salle Empire (pour '+arrLabel+')'} bg="#fef3c7" bc="#d97706" rows={rowsR2E}/>
+            <EmpireRecapBloc title={'Récap Salle Empire — '+arrLabel} bc="#0ea5e9" rows={recapRows}/>
+          </div>);
+        })()}
+      </div>)}
+    </div>
+  );
+}
+
+function ZoneBlock({title,tables,svcData,onOpen,zone}){
+  return(<div style={{border:'0.5px solid #d4d2c8',borderRadius:12,padding:10,background:'#fff'}}>
+    <div style={{fontSize:11,textTransform:'uppercase',letterSpacing:'.08em',color:'#888',marginBottom:8,fontWeight:500}}>{title}</div>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(72px,1fr))',gap:6}}>
+      {tables.map(tn=>{const d=svcData[tn]||mkoff(),active=d.covers>0,aqua=tn==='AQUA',isCons=!!d.isConsole;
+        let border='1.5px solid #d4d2c8',bg='#f5f4f0',nc='#1a1a1a',sc='#888';
+        if(active){
+          if(aqua){border='1.5px solid #1D9E75';bg='#d1fae5';nc='#065f46';sc='#047857';}
+          else if(isCons){border='1.5px solid #d97706';bg='#fef3c7';nc='#92400e';sc='#b45309';}
+          else{const pc=PLATEAU_COLORS[d.plateau]||PLATEAU_COLORS[120];bg=pc.bg;border='1.5px solid '+pc.border;nc=pc.nc;sc=pc.ic;}
+        }
+        const detail=active?(isCons?'console '+PL+d.plateau:piedFromPlateau(d.plateau)+' '+PL+d.plateau):null;
+        return(<div key={tn} onClick={()=>onOpen(tn,zone)} style={{borderRadius:8,border,padding:'6px 4px',textAlign:'center',cursor:'pointer',background:bg,minHeight:62,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',opacity:active?1:0.35,transition:'all .15s'}}><div style={{fontSize:12,fontWeight:500,color:nc}}>{tn}</div><div style={{fontSize:11,color:sc}}>{active?(isCons?'Console':d.covers+' pax'):'OFF'}</div>{detail&&<div style={{fontSize:9,color:sc,marginTop:1}}>{detail}</div>}</div>);})}
+    </div>
+  </div>);
+}
+
+function MvtBlock({plAscents,plDescents,plTransfers,piedAscents,piedDescents,piedTransfers,fTr,cTr,upN220,upN260,upN280,batteries}){
+  if(!plAscents)return <span style={{fontSize:12,color:'#888',fontStyle:'italic'}}>Premier service : référence de départ.</span>;
+  const pa=plAscents||[],pd2=plDescents||[],pt=plTransfers||[];
+  const pa2=piedAscents||[],pd3=piedDescents||[],pt2=piedTransfers||[];
+  const n220=upN220||0,n260=upN260||0,n280=upN280||0,bat=batteries||0;
+  const hasAny=pa.length||pd2.length||pt.length||pa2.length||pd3.length||pt2.length||(fTr&&(fTr.netUp.length||fTr.netDn.length||fTr.transfers.length))||(cTr&&(cTr.netUp.length||cTr.netDn.length||cTr.transfers.length))||n220||n260||n280||bat;
+  if(!hasAny)return <span style={{fontSize:12,color:'#888',fontStyle:'italic'}}>Aucun mouvement.</span>;
+  const joinTns=tns=>tns.map((t,i)=><span key={t}>{i===0?null:(i===tns.length-1?' et ':',  ')}<TnLabel tn={t}/></span>);
+  const tblList=arr=>{if(!arr||!arr.length)return null;const items=arr.map((x,i)=><span key={x.tn}>{i>0?', ':''}<TnLabel tn={x.tn}/>{' x'}<Bold>{x.n}</Bold></span>);return <span style={{color:'#666'}}>{' ('}{items}{')'}</span>;};
+  const chunked=(arr,size)=>{const r=[];for(let i=0;i<arr.length;i+=size)r.push(arr.slice(i,i+size));return r;};
+  const groupByPl=list=>{const m={};list.forEach(x=>{if(!m[x.pl])m[x.pl]={pl:x.pl,tns:[]};m[x.pl].tns.push(x.tn);});return[100,120,140,180,200].map(pl=>m[pl]).filter(Boolean);};
+  const groupByPied=list=>{const m={};list.forEach(x=>{if(!m[x.pied])m[x.pied]={pied:x.pied,tns:[]};m[x.pied].tns.push(x.tn);});return['petit','gros'].map(p=>m[p]).filter(Boolean);};
+  const upRows=[];
+  groupByPied(pa2).forEach(g=>{const n=g.tns.length;const label=g.pied==='gros'?(n>1?'gros pieds':'gros pied'):(n>1?'petits pieds':'petit pied');upRows.push(<Line key={'pup_'+g.pied}><Bold>{n===1?'un '+label:n+' '+label}</Bold>{' pour '}{joinTns(g.tns)}</Line>);});
+  groupByPl(pa).forEach(g=>{const n=g.tns.length;upRows.push(<Line key={'plasc_'+g.pl}><Bold>{n===1?'un plateau '+PL+g.pl:n+' plateaux '+PL+g.pl}</Bold>{' pour '}{joinTns(g.tns)}</Line>);});
+  if(fTr&&fTr.netUp.length>0){const fu=fTr.netUp.reduce((s,x)=>s+x.n,0);upRows.push(<Line key="fup"><Bold>{fu}</Bold>{' fauteuil'+(fu>1?'s':'')}{tblList(fTr.netUp)}</Line>);}
+  if(cTr&&cTr.netUp.length>0){const cu=cTr.netUp.reduce((s,x)=>s+x.n,0);upRows.push(<Line key="cup"><Bold>{cu}</Bold>{' cavallino'}{tblList(cTr.netUp)}</Line>);}
+  if(n220>0)upRows.push(<Line key="n220"><Bold>{n220}</Bold>{' nappe'+(n220>1?'s':'')+' '+PL+'220'}</Line>);
+  if(n260>0)upRows.push(<Line key="n260"><Bold>{n260}</Bold>{' nappe'+(n260>1?'s':'')+' '+PL+'260'}</Line>);
+  if(n280>0)upRows.push(<Line key="n280"><Bold>{n280}</Bold>{' nappe'+(n280>1?'s':'')+' '+PL+'280'}</Line>);
+  if(bat>0)upRows.push(<Line key="bat"><Bold>{bat}</Bold>{' batterie'+(bat>1?'s':'')+' (Mardi suivant)'}</Line>);
+  const dnRows=[];
+  groupByPied(pd3).forEach(g=>{const n=g.tns.length;const label=g.pied==='gros'?(n>1?'gros pieds':'gros pied'):(n>1?'petits pieds':'petit pied');dnRows.push(<Line key={'pdn_'+g.pied}><Bold>{n===1?'le '+label:'les '+label}</Bold>{' de '}{joinTns(g.tns)}</Line>);});
+  groupByPl(pd2).forEach(g=>{const n=g.tns.length;dnRows.push(<Line key={'pldsc_'+g.pl}><Bold>{n===1?'le plateau '+PL+g.pl:'les plateaux '+PL+g.pl}</Bold>{' de '}{joinTns(g.tns)}</Line>);});
+  if(fTr&&fTr.netDn.length>0){const fd=fTr.netDn.reduce((s,x)=>s+x.n,0);dnRows.push(<Line key="fdn"><Bold>{fd}</Bold>{' fauteuil'+(fd>1?'s':'')}{tblList(fTr.netDn)}</Line>);}
+  if(cTr&&cTr.netDn.length>0){const cd2=cTr.netDn.reduce((s,x)=>s+x.n,0);dnRows.push(<Line key="cdn"><Bold>{cd2}</Bold>{' cavallino'}{tblList(cTr.netDn)}</Line>);}
+  const trPlRows=[];chunked(pt,2).forEach((chunk,ci)=>{const nodes=chunk.map((t,i)=><span key={i}>{i>0&&<span style={{color:'#aaa'}}> · </span>}{'le plateau '}<Bold>{PL+t.pl}</Bold>{' de '}<TnLabel tn={t.fromTn}/>{' à '}<TnLabel tn={t.toTn}/></span>);trPlRows.push(<Line key={'trpl'+ci}>{nodes}</Line>);});
+  const trPiedRows=[];chunked(pt2,2).forEach((chunk,ci)=>{const nodes=chunk.map((t,i)=><span key={i}>{i>0&&<span style={{color:'#aaa'}}> · </span>}{'le '}<Bold>{t.pied==='gros'?'gros pied':'petit pied'}</Bold>{' de '}<TnLabel tn={t.fromTn}/>{' à '}<TnLabel tn={t.toTn}/></span>);trPiedRows.push(<Line key={'trpied'+ci}>{nodes}</Line>);});
+  const fTrRows=chunked(fTr?fTr.transfers:[],2).map((chunk,ci)=>{const nodes=chunk.map((t,i)=><span key={i}>{i>0&&<span style={{color:'#aaa'}}> · </span>}<Bold>{t.n}</Bold>{' de '}<TnLabel tn={t.from}/>{' à '}<TnLabel tn={t.to}/></span>);return <Line key={'ftr'+ci}>{nodes}</Line>;});
+  const cTrRows=chunked(cTr?cTr.transfers:[],2).map((chunk,ci)=>{const nodes=chunk.map((t,i)=><span key={i}>{i>0&&<span style={{color:'#aaa'}}> · </span>}<Bold>{t.n}</Bold>{' cavallino de '}<TnLabel tn={t.from}/>{' à '}<TnLabel tn={t.to}/></span>);return <Line key={'ctr'+ci}>{nodes}</Line>;});
+  return(<div style={{display:'flex',flexDirection:'column',gap:2}}>
+    {upRows.length>0&&<Section label="↑ À monter" bg="#dcfce7" color="#166534">{upRows}</Section>}
+    {dnRows.length>0&&<Section label="↓ À descendre" bg="#fee2e2" color="#991b1b">{dnRows}</Section>}
+    {trPlRows.length>0&&<Section label="⇄ Transferts plateaux" bg="#fef3c7" color="#92400e">{trPlRows}</Section>}
+    {trPiedRows.length>0&&<Section label="⇄ Transferts pieds" bg="#fef3c7" color="#92400e">{trPiedRows}</Section>}
+    {fTrRows.length>0&&<Section label="⇄ Transferts fauteuils" bg="#fef3c7" color="#92400e">{fTrRows}</Section>}
+    {cTrRows.length>0&&<Section label="⇄ Transferts cavallino" bg="#fef3c7" color="#92400e">{cTrRows}</Section>}
+  </div>);
+}
+
+function RangItem({r,sel,isFirst,isLast,onSelect,onMoveUp,onMoveDown,onDelete,team,editingRangId,editingRangName,setEditingRangId,setEditingRangName,updateCompo,compo}){
+  const mbrs=sortMembers(team.filter(m=>r.memberIds.includes(m.id)));
+  return(<div onClick={()=>onSelect(r.id)} style={{padding:'8px 10px',borderRadius:7,marginBottom:5,cursor:'pointer',border:'0.5px solid '+(sel?'#378ADD':'#e5e7eb'),background:sel?'#eff6ff':'#f9fafb',transition:'all .12s'}}>
+    <div style={{display:'flex',alignItems:'center',gap:4}}>
+      <div style={{display:'flex',flexDirection:'column',gap:1,marginRight:2}}>
+        <button onClick={e=>{e.stopPropagation();onMoveUp(r.id);}} disabled={isFirst} style={{fontSize:8,padding:'1px 3px',border:'0.5px solid #ddd',borderRadius:2,cursor:isFirst?'default':'pointer',background:'#fff',color:isFirst?'#ddd':'#888',lineHeight:1}}>▲</button>
+        <button onClick={e=>{e.stopPropagation();onMoveDown(r.id);}} disabled={isLast} style={{fontSize:8,padding:'1px 3px',border:'0.5px solid #ddd',borderRadius:2,cursor:isLast?'default':'pointer',background:'#fff',color:isLast?'#ddd':'#888',lineHeight:1}}>▼</button>
+      </div>
+      {editingRangId===r.id?(<input autoFocus value={editingRangName} onChange={e=>setEditingRangName(e.target.value)} onBlur={()=>{updateCompo({...compo,rangs:compo.rangs.map(rr=>rr.id===r.id?{...rr,name:editingRangName}:rr)});setEditingRangId(null);}} onKeyDown={e=>{if(e.key==='Enter'){updateCompo({...compo,rangs:compo.rangs.map(rr=>rr.id===r.id?{...rr,name:editingRangName}:rr)});setEditingRangId(null);}}} onClick={e=>e.stopPropagation()} style={{fontSize:12,fontWeight:600,border:'0.5px solid #378ADD',borderRadius:4,padding:'2px 6px',flex:1}}/>):(<span style={{fontSize:12,fontWeight:600,color:'#1a1a1a',flex:1}} onDoubleClick={e=>{e.stopPropagation();setEditingRangId(r.id);setEditingRangName(r.name);}}>{r.name}</span>)}
+      <button onClick={e=>{e.stopPropagation();onDelete(r.id);}} style={{fontSize:11,padding:'2px 7px',border:'none',borderRadius:4,cursor:'pointer',background:'#fee2e2',color:'#991b1b',marginLeft:4}}>×</button>
+    </div>
+    {mbrs.length>0&&<div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:5}}>{mbrs.map(m=><span key={m.id} style={{fontSize:11,padding:'1px 7px',borderRadius:10,background:'#dbeafe',color:'#1e40af'}}>{m.name}</span>)}</div>}
+  </div>);
+}
+
+function CompoView({services,currentService,setCurrentService,tables,compos,setCompos,team,setTeam,save,allSvcState}){
+  const svcData=tables[currentService]||{};const compo=compos[currentService]||buildEmptyCompo();const svcLabel=services.find(s=>s.id===currentService)?.label??'';
+  const tableRangCount={};[...SALLE,...TERRASSE].forEach(tn=>{tableRangCount[tn]=0;});compo.rangs.forEach(r=>r.tableIds.forEach(tn=>{tableRangCount[tn]=(tableRangCount[tn]||0)+1;}));
+  const [selectedRangId,setSelectedRangId]=useState(null);const [editingRangId,setEditingRangId]=useState(null);const [editingRangName,setEditingRangName]=useState('');const [editingZoneId,setEditingZoneId]=useState(null);const [editingZoneName,setEditingZoneName]=useState('');const [showTeamMgr,setShowTeamMgr]=useState(false);const [showExport,setShowExport]=useState(false);const [showInit,setShowInit]=useState(false);const [selectedZoneKey,setSelectedZoneKey]=useState(null);const [selectedZoneIsExtra,setSelectedZoneIsExtra]=useState(false);
+  const assignedIds=new Set();compo.rangs.forEach(r=>r.memberIds.forEach(id=>assignedIds.add(id)));Object.values(compo.zones).forEach(z=>z.memberIds.forEach(id=>assignedIds.add(id)));compo.extraZones.forEach(z=>z.memberIds.forEach(id=>assignedIds.add(id)));
+  function updateCompo(newCompo){const newCompos={...compos,[currentService]:newCompo};setCompos(newCompos);save(allSvcState.services,allSvcState.tables,allSvcState.terrasseMode,allSvcState.manual,currentService,newCompos,team);}
+  function addRang(){const id='rang_'+Date.now();updateCompo({...compo,rangs:[...compo.rangs,{id,name:'Nouveau rang',tableIds:[],memberIds:[]}]});setSelectedRangId(id);setSelectedZoneKey(null);}
+  function deleteRang(id){updateCompo({...compo,rangs:compo.rangs.filter(r=>r.id!==id)});if(selectedRangId===id)setSelectedRangId(null);}
+  function moveRangUp(id){const rangs=[...compo.rangs];const i=rangs.findIndex(r=>r.id===id);if(i<=0)return;[rangs[i-1],rangs[i]]=[rangs[i],rangs[i-1]];updateCompo({...compo,rangs});}
+  function moveRangDown(id){const rangs=[...compo.rangs];const i=rangs.findIndex(r=>r.id===id);if(i>=rangs.length-1)return;[rangs[i],rangs[i+1]]=[rangs[i+1],rangs[i]];updateCompo({...compo,rangs});}
+  function toggleTableInRang(tn){if(!selectedRangId)return;const rang=compo.rangs.find(r=>r.id===selectedRangId);if(!rang)return;const inIt=rang.tableIds.includes(tn);const newIds=inIt?rang.tableIds.filter(t=>t!==tn):[...rang.tableIds,tn];const autoName=rang.name===rang.tableIds.join(' ')||rang.name==='Nouveau rang'||rang.name==='Rang';const newName=autoName?(newIds.join(' ')||'Rang'):rang.name;updateCompo({...compo,rangs:compo.rangs.map(r=>r.id===selectedRangId?{...r,tableIds:newIds,name:newName}:r)});}
+  function toggleMemberInRang(memberId){if(!selectedRangId)return;const rang=compo.rangs.find(r=>r.id===selectedRangId);if(!rang)return;const has=rang.memberIds.includes(memberId);updateCompo({...compo,rangs:compo.rangs.map(r=>r.id===selectedRangId?{...r,memberIds:has?r.memberIds.filter(id=>id!==memberId):[...r.memberIds,memberId]}:r)});}
+  function toggleMemberInZone(zoneKey,memberId,isExtra){if(isExtra){updateCompo({...compo,extraZones:compo.extraZones.map(z=>{if(z.id!==zoneKey)return z;const has=z.memberIds.includes(memberId);return{...z,memberIds:has?z.memberIds.filter(id=>id!==memberId):[...z.memberIds,memberId]};})});}else{const zone=compo.zones[zoneKey];const has=zone.memberIds.includes(memberId);updateCompo({...compo,zones:{...compo.zones,[zoneKey]:{...zone,memberIds:has?zone.memberIds.filter(id=>id!==memberId):[...zone.memberIds,memberId]}}});}}
+  function toggleZone(zk){const z=compo.zones[zk];updateCompo({...compo,zones:{...compo.zones,[zk]:{...z,active:!z.active}}});}
+  function addExtraZone(){const id='zone_'+Date.now();updateCompo({...compo,extraZones:[...compo.extraZones,{id,name:'Nouvelle zone',memberIds:[]}]});setEditingZoneId(id);setEditingZoneName('Nouvelle zone');}
+  function deleteExtraZone(id){updateCompo({...compo,extraZones:compo.extraZones.filter(z=>z.id!==id)});}
+  function selectRang(id){setSelectedRangId(id);setSelectedZoneKey(null);}
+  function selectZone(key,isExtra){setSelectedZoneKey(key);setSelectedZoneIsExtra(isExtra);setSelectedRangId(null);}
+  const selectedRang=compo.rangs.find(r=>r.id===selectedRangId);
+  const activeZoneMembers=selectedZoneKey?(selectedZoneIsExtra?(compo.extraZones.find(z=>z.id===selectedZoneKey)||{memberIds:[]}).memberIds:(compo.zones[selectedZoneKey]||{memberIds:[]}).memberIds):[];
+  const sortedTeam=sortMembers(team);
+  return(<div style={{display:'flex',flexDirection:'column',gap:10}}>
+    <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',padding:'8px 12px',background:'#ececea',borderRadius:8,border:'0.5px solid #d4d2c8'}}>
+      <span style={{fontSize:13,color:'#666'}}>Service :</span>
+      <select value={currentService} onChange={e=>setCurrentService(e.target.value)} style={{fontSize:12,padding:'5px 8px',borderRadius:6,border:'0.5px solid #ccc',background:'#fff',color:'#1a1a1a'}}>{services.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select>
+      <div style={{flex:1}}/>
+      <button onClick={()=>setShowInit(true)} style={{padding:'6px 12px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Initialiser</button>
+      <button onClick={()=>setShowTeamMgr(true)} style={{padding:'6px 12px',fontSize:12,border:'0.5px solid #c4b5fd',borderRadius:6,cursor:'pointer',background:'#ede9fe',color:'#5b21b6'}}>Équipe</button>
+      <button onClick={()=>setShowExport(true)} style={{padding:'6px 12px',fontSize:12,fontWeight:600,border:'0.5px solid #86efac',borderRadius:6,cursor:'pointer',background:'#dcfce7',color:'#166534'}}>Exporter</button>
+    </div>
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+      <div style={{display:'flex',flexDirection:'column',gap:8}}>
+        <div style={{background:'#fff',border:'0.5px solid #d4d2c8',borderRadius:10,padding:10}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}><div style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'.06em',color:'#888'}}>Rangs</div><button onClick={addRang} style={{fontSize:11,padding:'3px 10px',border:'0.5px solid #378ADD',borderRadius:5,cursor:'pointer',background:'#dbeafe',color:'#1e40af'}}>+ Rang</button></div>
+          {compo.rangs.length===0&&<div style={{fontSize:12,color:'#aaa',textAlign:'center',padding:'12px 0'}}>Aucun rang</div>}
+          {compo.rangs.map((r,ri)=>(<RangItem key={r.id} r={r} sel={selectedRangId===r.id} isFirst={ri===0} isLast={ri===compo.rangs.length-1} onSelect={selectRang} onMoveUp={moveRangUp} onMoveDown={moveRangDown} onDelete={deleteRang} team={team} editingRangId={editingRangId} editingRangName={editingRangName} setEditingRangId={setEditingRangId} setEditingRangName={setEditingRangName} updateCompo={updateCompo} compo={compo}/>))}
+        </div>
+        <div style={{background:'#fff',border:'0.5px solid #d4d2c8',borderRadius:10,padding:10}}>
+          <div style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'.06em',color:'#888',marginBottom:8}}>Zones</div>
+          {FIXED_ZONES.map(zk=>{const zone=compo.zones[zk];const sel=selectedZoneKey===zk&&!selectedZoneIsExtra;const mbrs=sortMembers(team.filter(m=>zone.memberIds.includes(m.id)));return(<div key={zk} style={{marginBottom:5}}><div style={{display:'flex',alignItems:'center',gap:6}}><button onClick={()=>toggleZone(zk)} style={{fontSize:10,padding:'2px 8px',borderRadius:10,border:'none',cursor:'pointer',background:zone.active?'#dcfce7':'#f0efe9',color:zone.active?'#166534':'#888',fontWeight:600}}>{zone.active?'ON':'OFF'}</button><div onClick={()=>zone.active&&selectZone(zk,false)} style={{flex:1,padding:'6px 8px',borderRadius:6,cursor:zone.active?'pointer':'default',border:'0.5px solid '+(sel?'#378ADD':'#e5e7eb'),background:sel?'#eff6ff':zone.active?'#f9fafb':'#f5f4f0',opacity:zone.active?1:0.5}}><div style={{fontSize:12,fontWeight:600,color:'#1a1a1a'}}>{zk}</div>{mbrs.length>0&&<div style={{display:'flex',flexWrap:'wrap',gap:3,marginTop:3}}>{mbrs.map(m=><span key={m.id} style={{fontSize:11,padding:'1px 7px',borderRadius:10,background:'#dbeafe',color:'#1e40af'}}>{m.name}</span>)}</div>}</div></div></div>);})}
+          {compo.extraZones.map(z=>{const sel=selectedZoneKey===z.id&&selectedZoneIsExtra;const mbrs=sortMembers(team.filter(m=>z.memberIds.includes(m.id)));return(<div key={z.id} style={{marginBottom:5}}><div style={{display:'flex',alignItems:'center',gap:6}}><div onClick={()=>selectZone(z.id,true)} style={{flex:1,padding:'6px 8px',borderRadius:6,cursor:'pointer',border:'0.5px solid '+(sel?'#378ADD':'#e5e7eb'),background:sel?'#eff6ff':'#f9fafb'}}>{editingZoneId===z.id?(<input autoFocus value={editingZoneName} onChange={e=>setEditingZoneName(e.target.value)} onBlur={()=>{updateCompo({...compo,extraZones:compo.extraZones.map(ez=>ez.id===z.id?{...ez,name:editingZoneName}:ez)});setEditingZoneId(null);}} onKeyDown={e=>{if(e.key==='Enter'){updateCompo({...compo,extraZones:compo.extraZones.map(ez=>ez.id===z.id?{...ez,name:editingZoneName}:ez)});setEditingZoneId(null);}}} onClick={e=>e.stopPropagation()} style={{fontSize:12,fontWeight:600,border:'0.5px solid #378ADD',borderRadius:4,padding:'2px 6px',width:'100%',boxSizing:'border-box'}}/>):(<div style={{fontSize:12,fontWeight:600,color:'#1a1a1a'}} onDoubleClick={e=>{e.stopPropagation();setEditingZoneId(z.id);setEditingZoneName(z.name);}}>{z.name}</div>)}{mbrs.length>0&&<div style={{display:'flex',flexWrap:'wrap',gap:3,marginTop:3}}>{mbrs.map(m=><span key={m.id} style={{fontSize:11,padding:'1px 7px',borderRadius:10,background:'#dbeafe',color:'#1e40af'}}>{m.name}</span>)}</div>}</div><button onClick={()=>deleteExtraZone(z.id)} style={{fontSize:11,padding:'2px 7px',border:'none',borderRadius:4,cursor:'pointer',background:'#fee2e2',color:'#991b1b'}}>×</button></div></div>);})}
+          <button onClick={addExtraZone} style={{marginTop:6,fontSize:11,padding:'4px 10px',border:'0.5px solid #ccc',borderRadius:5,cursor:'pointer',background:'#f5f4f0',color:'#555',width:'100%'}}>+ Zone</button>
+        </div>
+      </div>
+      <div style={{display:'flex',flexDirection:'column',gap:8}}>
+        {selectedRangId&&(<div style={{background:'#fff',border:'0.5px solid #378ADD',borderRadius:10,padding:10}}>
+          {(()=>{const totalCovers=(selectedRang?.tableIds||[]).reduce((sum,tn)=>{const d=svcData[tn];return sum+(d&&d.covers>0&&!d.isConsole?d.covers:0);},0);return(<div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}><div style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'.06em',color:'#1e40af'}}>{'Tables — '+(selectedRang?.name??'')}</div>{totalCovers>0&&<div style={{fontSize:12,fontWeight:700,color:'#1e40af',background:'#dbeafe',borderRadius:6,padding:'2px 8px'}}>{totalCovers+' pax'}</div>}</div>);})()}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(60px,1fr))',gap:5}}>
+            {[...SALLE,...TERRASSE].map(tn=>{const d=svcData[tn];const active=d&&d.covers>0&&!d.isConsole;if(!active)return null;const inThis=selectedRang?.tableIds.includes(tn);const count=tableRangCount[tn]||0;const shared=count>1;let bg2=inThis?'#dbeafe':'#f5f4f0',border2=inThis?'2px solid #378ADD':'1px solid #d4d2c8',nc=inThis?'#1e3a8a':'#555';if(shared&&inThis){bg2='#fef3c7';border2='2px solid #f59e0b';nc='#92400e';}return(<div key={tn} onClick={()=>toggleTableInRang(tn)} style={{borderRadius:7,border:border2,padding:'6px 4px',textAlign:'center',cursor:'pointer',background:bg2,position:'relative'}}><div style={{fontSize:12,fontWeight:600,color:nc}}>{tn}</div><div style={{fontSize:9,color:nc}}>{d.covers+'p'}</div>{shared&&<div style={{position:'absolute',top:2,right:2,fontSize:8,background:'#f59e0b',color:'#fff',borderRadius:'50%',width:12,height:12,display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>{count}</div>}</div>);})}
+          </div>
+        </div>)}
+        {(selectedRangId||selectedZoneKey)&&(<div style={{background:'#fff',border:'0.5px solid #d4d2c8',borderRadius:10,padding:10}}>
+          <div style={{fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'.06em',color:'#888',marginBottom:8}}>{selectedRangId?'Membres du rang':'Membres de la zone'}</div>
+          {[...sortedTeam.filter(m=>!assignedIds.has(m.id)),...sortedTeam.filter(m=>assignedIds.has(m.id))].map(m=>{const inSel=selectedRangId?(selectedRang?.memberIds.includes(m.id)??false):activeZoneMembers.includes(m.id);const elsewhere=assignedIds.has(m.id)&&!inSel;return(<div key={m.id} onClick={()=>selectedRangId?toggleMemberInRang(m.id):toggleMemberInZone(selectedZoneKey,m.id,selectedZoneIsExtra)} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 8px',borderRadius:7,marginBottom:4,cursor:'pointer',background:inSel?'#eff6ff':elsewhere?'#fafafa':'#f9fafb',border:'0.5px solid '+(inSel?'#93c5fd':'#e5e7eb'),opacity:elsewhere?0.5:1,transition:'all .12s'}}><div style={{width:20,height:20,borderRadius:'50%',background:inSel?'#378ADD':'#e5e7eb',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{inSel&&<span style={{color:'#fff',fontSize:12,fontWeight:700}}>✓</span>}</div><span style={{fontSize:12,fontWeight:inSel?600:400,color:elsewhere?'#aaa':'#1a1a1a',flex:1}}>{m.name}</span><RoleBadge role={m.role}/></div>);})}
+        </div>)}
+        {!selectedRangId&&!selectedZoneKey&&<div style={{background:'#f5f4f0',borderRadius:10,padding:20,textAlign:'center',color:'#aaa',fontSize:13}}>Sélectionnez un rang ou une zone</div>}
+      </div>
+    </div>
+    {showInit&&(<div onClick={e=>{if(e.target===e.currentTarget)setShowInit(false);}} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:100}}><div style={{background:'#fff',borderRadius:12,padding:24,width:320,border:'0.5px solid #ddd',maxHeight:'80vh',overflowY:'auto'}}><div style={{fontSize:15,fontWeight:600,marginBottom:12}}>Initialiser la compo</div><div style={{fontSize:11,fontWeight:600,color:'#555',marginBottom:8,textTransform:'uppercase',letterSpacing:'.05em'}}>Copier depuis</div>{services.filter(s=>s.id!==currentService).map(s=>(<button key={s.id} onClick={()=>{if(!compos[s.id])return;updateCompo(dc(compos[s.id]));setShowInit(false);}} style={{display:'block',width:'100%',marginBottom:6,padding:'9px 12px',border:'0.5px solid #378ADD',borderRadius:8,cursor:'pointer',background:'#dbeafe',color:'#1e40af',fontSize:13,fontWeight:500,textAlign:'left'}}>{s.label}</button>))}<button onClick={()=>{updateCompo(buildEmptyCompo());setShowInit(false);}} style={{display:'block',width:'100%',marginTop:8,padding:'10px',border:'0.5px solid #ccc',borderRadius:8,cursor:'pointer',background:'#fff',color:'#555',fontSize:13}}>Repartir à zéro</button><button onClick={()=>setShowInit(false)} style={{display:'block',width:'100%',marginTop:6,padding:'8px',border:'none',background:'none',cursor:'pointer',color:'#aaa',fontSize:12}}>Annuler</button></div></div>)}
+    {showTeamMgr&&<TeamManager team={team} setTeam={setTeam} onClose={()=>setShowTeamMgr(false)} save={save} allSvcState={allSvcState} compos={compos} currentService={currentService}/>}
+    {showExport&&<CompoExport onClose={()=>setShowExport(false)} compo={compo} team={team} svcLabel={svcLabel} svcData={svcData}/>}
+  </div>);
+}
+
+function TeamManager({team,setTeam,onClose,save,allSvcState,compos,currentService}){
+  const [newName,setNewName]=useState('');const [newRole,setNewRole]=useState(ROLE_ORDER[0]);const [newGender,setNewGender]=useState('m');const [editing,setEditing]=useState(null);
+  function addMember(){if(!newName.trim())return;const id='member_'+Date.now();const newTeam=[...team,{id,name:newName.trim(),role:newRole,gender:newGender}];setTeam(newTeam);save(allSvcState.services,allSvcState.tables,allSvcState.terrasseMode,allSvcState.manual,currentService,compos,newTeam);setNewName('');setNewRole(ROLE_ORDER[0]);setNewGender('m');}
+  function removeMember(id){const newTeam=team.filter(m=>m.id!==id);setTeam(newTeam);save(allSvcState.services,allSvcState.tables,allSvcState.terrasseMode,allSvcState.manual,currentService,compos,newTeam);}
+  function saveEdit(){if(!editing)return;const newTeam=team.map(m=>m.id===editing.id?{...m,name:editing.name,role:editing.role,gender:editing.gender||'m'}:m);setTeam(newTeam);save(allSvcState.services,allSvcState.tables,allSvcState.terrasseMode,allSvcState.manual,currentService,compos,newTeam);setEditing(null);}
+  const sorted=sortMembers(team);const genders=[{v:'m',label:'Garçon',bg:'#dbeafe',color:'#1e40af'},{v:'f',label:'Fille',bg:'#fce7f3',color:'#9d174d'}];
+  return(<div onClick={e=>{if(e.target===e.currentTarget)onClose();}} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200}}><div style={{background:'#f5f4f0',borderRadius:12,padding:20,width:380,maxHeight:'85vh',overflowY:'auto',border:'0.5px solid #ddd'}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}><span style={{fontWeight:700,fontSize:15}}>Équipe</span><button onClick={onClose} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#888'}}>×</button></div>
+    <div style={{background:'#fff',borderRadius:8,padding:12,marginBottom:14}}>
+      <div style={{fontSize:11,fontWeight:600,color:'#555',marginBottom:8,textTransform:'uppercase',letterSpacing:'.05em'}}>Ajouter</div>
+      <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Prénom" style={{width:'100%',padding:'7px 10px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,marginBottom:6,boxSizing:'border-box'}}/>
+      <select value={newRole} onChange={e=>setNewRole(e.target.value)} style={{width:'100%',padding:'7px 10px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,marginBottom:6,boxSizing:'border-box'}}>{ROLE_ORDER.map(r=><option key={r} value={r}>{r}</option>)}</select>
+      <div style={{display:'flex',gap:6,marginBottom:8}}>{genders.map(g=><button key={g.v} onClick={()=>setNewGender(g.v)} style={{flex:1,padding:'6px',border:'0.5px solid '+(newGender===g.v?g.color:'#ccc'),borderRadius:6,cursor:'pointer',background:newGender===g.v?g.bg:'#fff',color:newGender===g.v?g.color:'#888',fontSize:12,fontWeight:newGender===g.v?600:400}}>{g.label}</button>)}</div>
+      <button onClick={addMember} style={{width:'100%',padding:'8px',border:'0.5px solid #378ADD',borderRadius:6,cursor:'pointer',background:'#dbeafe',color:'#1e40af',fontSize:12,fontWeight:500}}>Ajouter</button>
+    </div>
+    {sorted.map(m=>(<div key={m.id} style={{background:'#fff',borderRadius:8,padding:'8px 12px',marginBottom:6,border:'0.5px solid #e5e7eb'}}>{editing&&editing.id===m.id?(<div><input value={editing.name} onChange={e=>setEditing({...editing,name:e.target.value})} style={{width:'100%',padding:'5px 8px',fontSize:12,border:'0.5px solid #378ADD',borderRadius:5,marginBottom:5,boxSizing:'border-box'}}/><select value={editing.role} onChange={e=>setEditing({...editing,role:e.target.value})} style={{width:'100%',padding:'5px 8px',fontSize:12,border:'0.5px solid #378ADD',borderRadius:5,marginBottom:5,boxSizing:'border-box'}}>{ROLE_ORDER.map(r=><option key={r} value={r}>{r}</option>)}</select><div style={{display:'flex',gap:6,marginBottom:6}}>{genders.map(g=>{const cur=editing.gender||'m';return <button key={g.v} onClick={()=>setEditing({...editing,gender:g.v})} style={{flex:1,padding:'5px',border:'0.5px solid '+(cur===g.v?g.color:'#ccc'),borderRadius:5,cursor:'pointer',background:cur===g.v?g.bg:'#fff',color:cur===g.v?g.color:'#888',fontSize:11,fontWeight:cur===g.v?600:400}}>{g.label}</button>;})}</div><div style={{display:'flex',gap:6}}><button onClick={saveEdit} style={{flex:1,padding:'5px',border:'0.5px solid #378ADD',borderRadius:5,cursor:'pointer',background:'#dbeafe',color:'#1e40af',fontSize:11}}>Sauvegarder</button><button onClick={()=>setEditing(null)} style={{padding:'5px 10px',border:'0.5px solid #ccc',borderRadius:5,cursor:'pointer',background:'#fff',color:'#555',fontSize:11}}>Annuler</button></div></div>):(<div style={{display:'flex',alignItems:'center',gap:8}}><span style={{flex:1,fontSize:12,fontWeight:500}}>{m.name}</span><RoleBadge role={m.role}/><button onClick={()=>setEditing({id:m.id,name:m.name,role:m.role,gender:m.gender||'m'})} style={{fontSize:11,padding:'2px 8px',border:'0.5px solid #ccc',borderRadius:4,cursor:'pointer',background:'#f5f4f0',color:'#555'}}>Éditer</button><button onClick={()=>removeMember(m.id)} style={{fontSize:11,padding:'2px 7px',border:'none',borderRadius:4,cursor:'pointer',background:'#fee2e2',color:'#991b1b'}}>×</button></div>)}</div>))}
+  </div></div>);
+}
+
+function CompoExport({onClose,compo,team,svcLabel,svcData}){
+  const outerRef=useRef(null),contentRef=useRef(null);const [scale,setScale]=useState(1);
+  useEffect(()=>{function fit(){if(!outerRef.current||!contentRef.current)return;contentRef.current.style.transform='scale(1)';const aH=outerRef.current.clientHeight-16,aW=outerRef.current.clientWidth-16,cH=contentRef.current.scrollHeight,cW=contentRef.current.scrollWidth;setScale(Math.min(1,aH/cH,aW/cW));}let id=requestAnimationFrame(()=>{id=requestAnimationFrame(fit);});window.addEventListener('resize',fit);return()=>{cancelAnimationFrame(id);window.removeEventListener('resize',fit);};},[]);
+  const dateStr=new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'});const timeStr=new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+  function MemberTag({id}){const m=team.find(t=>t.id===id);if(!m)return null;const g=m.gender||(m.role&&(m.role.includes('Cheffe')||m.role.includes('Chargée'))?'f':'m');const bg=g==='f'?'#fce7f3':'#dbeafe',color=g==='f'?'#9d174d':'#1e40af';return <span style={{fontSize:10,padding:'2px 7px',borderRadius:10,background:bg,color,fontWeight:500}}>{m.name}</span>;}
+  function ZoneRow({label,memberIds,bg}){if(!memberIds||!memberIds.length)return null;const sorted=sortMembers(team.filter(m=>memberIds.includes(m.id)));if(!sorted.length)return null;return <div style={{display:'flex',alignItems:'center',gap:8,padding:'5px 8px',borderRadius:6,background:bg||'#f5f4f0',marginBottom:4}}><span style={{fontSize:11,fontWeight:700,color:'#1a1a1a',minWidth:70}}>{label}</span><div style={{display:'flex',flexWrap:'wrap',gap:4}}>{sorted.map(m=><MemberTag key={m.id} id={m.id}/>)}</div></div>;}
+  function RangRow({rang}){const sorted=sortMembers(team.filter(m=>rang.memberIds.includes(m.id)));if(!sorted.length)return null;return <div style={{display:'flex',alignItems:'flex-start',gap:8,padding:'5px 8px',borderRadius:6,background:'#f9fafb',marginBottom:4,border:'0.5px solid #e5e7eb'}}><span style={{fontSize:11,fontWeight:700,color:'#1a1a1a',minWidth:80,paddingTop:1}}>{rang.name}</span><div style={{display:'flex',flexWrap:'wrap',gap:4,flex:1}}>{sorted.map(m=><MemberTag key={m.id} id={m.id}/>)}</div></div>;}
+  const zones=compo.zones||{};const Accueil=zones['Accueil'],Meuble=zones['Meuble'],Passe=zones['Passe'],Tournant=zones['Tournant'],Out=zones['Out'];
+  return(<div style={{position:'fixed',inset:0,zIndex:300,background:'#f5f4f0',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 14px',borderBottom:'1px solid #d4d2c8',background:'#fff',flexShrink:0}}><div><div style={{fontSize:13,fontWeight:700}}>{svcLabel}</div><div style={{fontSize:10,color:'#888',marginTop:1}}>{'Composition · '+dateStr+' '+timeStr}</div></div><button onClick={onClose} style={{background:'#1a1a1a',color:'#fff',border:'none',borderRadius:6,padding:'7px 14px',fontSize:12,cursor:'pointer'}}>Fermer</button></div>
+    <div ref={outerRef} style={{flex:1,overflow:'hidden',display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'8px'}}><div ref={contentRef} style={{width:560,transformOrigin:'top center',transform:'scale('+scale+')',display:'flex',flexDirection:'column',gap:4}}>
+      <div style={{fontSize:11,fontWeight:700,color:'#1a1a1a',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4,textAlign:'center'}}>{svcLabel}</div>
+      {Accueil?.active&&<ZoneRow label="Accueil" memberIds={Accueil.memberIds} bg="#dcfce7"/>}
+      {compo.rangs.map(r=><RangRow key={r.id} rang={r}/>)}
+      {Meuble?.active&&<ZoneRow label="Meuble" memberIds={Meuble.memberIds} bg="#fef3c7"/>}
+      {Passe?.active&&<ZoneRow label="Passe" memberIds={Passe.memberIds} bg="#fef3c7"/>}
+      {Tournant?.active&&<ZoneRow label="Tournant" memberIds={Tournant.memberIds} bg="#fef3c7"/>}
+      {compo.extraZones.filter(z=>z.memberIds.length>0).map(z=><ZoneRow key={z.id} label={z.name} memberIds={z.memberIds} bg="#ede9fe"/>)}
+      {Out?.active&&<ZoneRow label="Out" memberIds={Out.memberIds} bg="#fee2e2"/>}
+      <div style={{fontSize:8,color:'#aaa',textAlign:'right',marginTop:4}}>Le Louis XV – Alain Ducasse à l'Hôtel de Paris · Monaco</div>
+    </div></div>
+  </div>);
+}
+
+function CarcasseExport({onClose,services,tables,currentService,manual}){
+  const outerRef=useRef(null),contentRef=useRef(null);const [scale,setScale]=useState(1);
+  const svcData=tables[currentService]||{};const currentSvcObj=services.find(s=>s.id===currentService);const man=manual[currentService]||{};
+  let ts=0,tt=0,cs=0,ct=0;SALLE.forEach(tn=>{const d=svcData[tn];if(d&&d.covers>0&&!d.isConsole){ts+=d.covers;cs+=getCavallino(tn,d.covers);}});TERRASSE.forEach(tn=>{const d=svcData[tn];if(d&&d.covers>0&&!d.isConsole){tt+=d.covers;ct+=getCavallino(tn,d.covers);}});
+  const mvtRaw=getMvtData(tables,services,currentService);
+  useEffect(()=>{function fit(){if(!outerRef.current||!contentRef.current)return;contentRef.current.style.transform='scale(1)';const aH=outerRef.current.clientHeight-16,aW=outerRef.current.clientWidth-16,cH=contentRef.current.scrollHeight,cW=contentRef.current.scrollWidth;setScale(Math.min(1,aH/cH,aW/cW));}let id=requestAnimationFrame(()=>{id=requestAnimationFrame(fit);});window.addEventListener('resize',fit);return()=>{cancelAnimationFrame(id);window.removeEventListener('resize',fit);};},[currentService]);
+  const dateStr=new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'});const timeStr=new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+  return(<div style={{position:'fixed',inset:0,zIndex:300,background:'#f5f4f0',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 14px',borderBottom:'1px solid #d4d2c8',background:'#fff',flexShrink:0}}><div><div style={{fontSize:13,fontWeight:700}}>{currentSvcObj?.label??''}</div><div style={{fontSize:10,color:'#888',marginTop:1}}>{'Carcasse · '+dateStr+' '+timeStr}</div></div><button onClick={onClose} style={{background:'#1a1a1a',color:'#fff',border:'none',borderRadius:6,padding:'7px 14px',fontSize:12,cursor:'pointer'}}>Fermer</button></div>
+    <div ref={outerRef} style={{flex:1,overflow:'hidden',display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'8px'}}><div ref={contentRef} style={{width:560,transformOrigin:'top center',transform:'scale('+scale+')',display:'flex',flexDirection:'column',gap:6}}>
+      <div style={{display:'flex',justifyContent:'center',gap:5,marginBottom:4}}>{[{l:'Pax',v1:man.pax!=null?man.pax:'–',bg:'#fef3c7',warm:true},{l:'Tables',v1:man.tables!=null?man.tables:'–',bg:'#fef3c7',warm:true}].map(c=>(<div key={c.l} style={{background:c.bg,borderRadius:7,padding:'5px 16px',textAlign:'center'}}><div style={{fontSize:9,color:'#92400e',fontWeight:500,marginBottom:1}}>{c.l}</div><div style={{fontSize:18,fontWeight:700,color:'#b45309',lineHeight:1.1}}>{c.v1}</div></div>))}</div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>{[{z:'Salle',list:SALLE},{z:'Terrasse',list:TERRASSE}].map(({z,list})=>(<div key={z} style={{background:'#fff',border:'0.5px solid #d4d2c8',borderRadius:7,padding:7}}><div style={{fontSize:8,textTransform:'uppercase',letterSpacing:'.07em',color:'#888',fontWeight:600,marginBottom:5}}>{z}</div><div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:3}}>{list.map(tn=>{const d=svcData[tn],active=d&&d.covers>0,isCons=d&&d.isConsole;let bg2='#f0efe9',nc2='#bbb',ic='#ccc';if(active){if(tn==='AQUA'){bg2='#d1fae5';nc2='#065f46';ic='#047857';}else if(isCons){bg2='#fef3c7';nc2='#92400e';ic='#b45309';}else{const pc=PLATEAU_COLORS[d.plateau]||PLATEAU_COLORS[120];bg2=pc.bg;nc2=pc.nc;ic=pc.ic;}}return <div key={tn} style={{background:bg2,borderRadius:4,padding:'3px 2px',textAlign:'center',minHeight:30,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',opacity:active?1:0.3}}><div style={{fontSize:9,fontWeight:700,color:nc2}}>{tn}</div><div style={{fontSize:8,color:ic}}>{active?(isCons?'csl '+PL+d.plateau:d.covers+'p '+PL+d.plateau):'–'}</div></div>;})} </div></div>))}</div>
+      <div style={{display:'flex',justifyContent:'center',gap:5}}>{[{label:'Salle',f:ts,c:cs+3,bg:'#ececea',fc:'#1a1a1a',cc:'#888'},{label:'Terrasse',f:tt,c:ct,bg:'#ececea',fc:'#1a1a1a',cc:'#888'},{label:'Total',f:ts+tt,c:cs+ct+3,bg:'#dbeafe',fc:'#1d4ed8',cc:'#60a5fa'}].map(({label,f,c,bg,fc,cc})=>(<div key={label} style={{background:bg,borderRadius:7,padding:'4px 12px',textAlign:'center'}}><div style={{fontSize:9,color:cc,fontWeight:500,marginBottom:1}}>{label}</div><div style={{fontSize:16,fontWeight:700,color:fc,lineHeight:1.1}}>{f}</div><div style={{fontSize:8,color:cc}}>Fauteuils</div><div style={{fontSize:13,fontWeight:600,color:fc,lineHeight:1.1}}>{c}</div><div style={{fontSize:8,color:cc}}>Cavallino</div></div>))}</div>
+      <div style={{background:'#fff',border:'0.5px solid #d4d2c8',borderRadius:7,padding:8}}><div style={{fontSize:9,fontWeight:700,color:'#1a1a1a',marginBottom:5,textTransform:'uppercase',letterSpacing:'.05em'}}>{'Carcasse '+(mvtRaw?mvtRaw.prevLabel+' → '+(currentSvcObj?.label??''):'')}</div><MvtBlock {...(mvtRaw||{})}/></div>
+      <div style={{fontSize:8,color:'#aaa',textAlign:'right'}}>Le Louis XV – Alain Ducasse à l'Hôtel de Paris · Monaco</div>
+    </div></div>
+  </div>);
+}
+
+// ─── Planning View ────────────────────────────────────────────────────────────
+const JOURS_DEFAULT=[{id:'lun',label:'Lundi'},{id:'mar',label:'Mardi'},{id:'mer',label:'Mercredi'},{id:'jeu',label:'Jeudi'},{id:'ven',label:'Vendredi'},{id:'sam',label:'Samedi'},{id:'dim',label:'Dimanche'}];
+
+function PlanningView({team,planning,setPlanning,saveAll}){
+  const [editCell,setEditCell]=useState(null); // {memberId, dayId}
+  const [editHeure,setEditHeure]=useState('');
+  const [editNote,setEditNote]=useState('');
+  const [editWeek,setEditWeek]=useState(false);
+  const [weekDraft,setWeekDraft]=useState('');
+
+  const days=planning.days||JOURS_DEFAULT;
+  const entries=planning.entries||{};
+  const sorted=sortMembers(team);
+
+  function getEntry(memberId,dayId){return entries[memberId]?.[dayId]||null;}
+
+  function openCell(memberId,dayId){
+    const e=getEntry(memberId,dayId);
+    setEditCell({memberId,dayId});
+    setEditHeure(e?.heure||'');
+    setEditNote(e?.note||'');
+  }
+
+  function saveCell(){
+    if(!editCell)return;
+    const{memberId,dayId}=editCell;
+    const newEntries=dc(entries);
+    if(!newEntries[memberId])newEntries[memberId]={};
+    if(!editHeure&&!editNote){delete newEntries[memberId][dayId];}
+    else{newEntries[memberId][dayId]={heure:editHeure.trim(),note:editNote.trim()};}
+    const newPlanning={...planning,entries:newEntries};
+    setPlanning(newPlanning);
+    saveAll(newPlanning);
+    setEditCell(null);
+  }
+
+  function clearCell(){
+    if(!editCell)return;
+    const{memberId,dayId}=editCell;
+    const newEntries=dc(entries);
+    if(newEntries[memberId])delete newEntries[memberId][dayId];
+    const newPlanning={...planning,entries:newEntries};
+    setPlanning(newPlanning);
+    saveAll(newPlanning);
+    setEditCell(null);
+  }
+
+  function saveWeekLabel(){
+    const newPlanning={...planning,weekLabel:weekDraft};
+    setPlanning(newPlanning);
+    saveAll(newPlanning);
+    setEditWeek(false);
+  }
+
+  const roleColors={"Maître d'Hôtel":{bg:'#ede9fe',color:'#5b21b6'},'Chef de rang':{bg:'#dbeafe',color:'#1e40af'},'Cheffe de rang':{bg:'#dbeafe',color:'#1e40af'},'Commis de rang':{bg:'#f0fdf4',color:'#166534'},'Chargée de clientèle':{bg:'#fef3c7',color:'#92400e'},'Chargé de clientèle':{bg:'#fef3c7',color:'#92400e'}};
+
+  return(<div style={{display:'flex',flexDirection:'column',gap:10}}>
+    {/* Header semaine */}
+    <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',background:'#ececea',borderRadius:8,border:'0.5px solid #d4d2c8'}}>
+      <span style={{fontSize:13,color:'#666'}}>Semaine :</span>
+      {editWeek?(<>
+        <input autoFocus value={weekDraft} onChange={e=>setWeekDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')saveWeekLabel();if(e.key==='Escape')setEditWeek(false);}} placeholder="ex: 30 juin – 06 juillet 2026" style={{flex:1,fontSize:13,padding:'4px 8px',border:'0.5px solid #378ADD',borderRadius:6,outline:'none'}}/>
+        <button onClick={saveWeekLabel} style={{padding:'5px 12px',fontSize:12,border:'0.5px solid #378ADD',borderRadius:6,cursor:'pointer',background:'#dbeafe',color:'#1e40af'}}>OK</button>
+        <button onClick={()=>setEditWeek(false)} style={{padding:'5px 10px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#888'}}>Annuler</button>
+      </>):(<>
+        <span onClick={()=>{setWeekDraft(planning.weekLabel||'');setEditWeek(true);}} style={{fontSize:13,fontWeight:500,color:planning.weekLabel?'#1a1a1a':'#aaa',cursor:'pointer',flex:1}}>{planning.weekLabel||'Cliquer pour saisir la semaine…'}</span>
+        <button onClick={()=>{setWeekDraft(planning.weekLabel||'');setEditWeek(true);}} style={{padding:'5px 12px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Modifier</button>
+      </>)}
+    </div>
+
+    {/* Grille */}
+    <div style={{overflowX:'auto'}}>
+      <table style={{borderCollapse:'collapse',width:'100%',minWidth:700}}>
+        <thead>
+          <tr>
+            <th style={{width:110,padding:'6px 8px',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'.05em',color:'#888',background:'#f5f4f0',textAlign:'left',borderBottom:'1px solid #e5e7eb'}}>Personne</th>
+            {days.map(d=>(<th key={d.id} style={{padding:'6px 4px',fontSize:11,fontWeight:600,textTransform:'uppercase',letterSpacing:'.04em',color:'#888',background:'#f5f4f0',textAlign:'center',borderBottom:'1px solid #e5e7eb',minWidth:90}}>{d.label}</th>))}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((m,mi)=>{
+            const rc=roleColors[m.role]||{bg:'#f5f4f0',color:'#555'};
+            return(<tr key={m.id} style={{background:mi%2===0?'#fff':'#fafaf9'}}>
+              <td style={{padding:'6px 8px',borderBottom:'0.5px solid #f0efe9',verticalAlign:'middle'}}>
+                <div style={{fontSize:12,fontWeight:600,color:'#1a1a1a'}}>{m.name}</div>
+                <div style={{fontSize:9,padding:'1px 5px',borderRadius:3,background:rc.bg,color:rc.color,fontWeight:600,display:'inline-block',marginTop:2}}>{m.role}</div>
+              </td>
+              {days.map(d=>{
+                const e=getEntry(m.id,d.id);
+                const isActive=!!(e?.heure||e?.note);
+                return(<td key={d.id} onClick={()=>openCell(m.id,d.id)} style={{padding:'4px',borderBottom:'0.5px solid #f0efe9',textAlign:'center',cursor:'pointer',verticalAlign:'middle'}}>
+                  <div style={{borderRadius:6,padding:'4px 3px',minHeight:36,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:isActive?'#eff6ff':'#f5f4f0',border:'0.5px solid '+(isActive?'#93c5fd':'#e5e7eb'),transition:'all .12s'}}>
+                    {isActive?(<>
+                      {e.heure&&<div style={{fontSize:11,fontWeight:700,color:'#1e40af',lineHeight:1.2}}>{e.heure}</div>}
+                      {e.note&&<div style={{fontSize:9,color:'#3b82f6',lineHeight:1.2,marginTop:1,maxWidth:80,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{e.note}</div>}
+                    </>):<div style={{fontSize:10,color:'#ccc'}}>–</div>}
+                  </div>
+                </td>);
+              })}
+            </tr>);
+          })}
+        </tbody>
+      </table>
+    </div>
+
+    {/* Modal saisie cellule */}
+    {editCell&&(()=>{
+      const m=team.find(x=>x.id===editCell.memberId);
+      const d=days.find(x=>x.id===editCell.dayId);
+      return(<div onClick={e=>{if(e.target===e.currentTarget)setEditCell(null);}} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200}}>
+        <div style={{background:'#fff',borderRadius:12,padding:20,width:300,border:'0.5px solid #ddd'}}>
+          <div style={{fontSize:14,fontWeight:600,marginBottom:4}}>{m?.name} — {d?.label}</div>
+          <div style={{fontSize:11,color:'#888',marginBottom:14}}>{m?.role}</div>
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:11,color:'#888',marginBottom:4,textTransform:'uppercase',letterSpacing:'.05em'}}>Heure d'arrivée</div>
+            <input value={editHeure} onChange={e=>setEditHeure(e.target.value)} placeholder="ex: 16:00 / F" style={{width:'100%',padding:'8px 10px',fontSize:13,border:'0.5px solid #ccc',borderRadius:7,boxSizing:'border-box',outline:'none'}}/>
+          </div>
+          <div style={{marginBottom:16}}>
+            <div style={{fontSize:11,color:'#888',marginBottom:4,textTransform:'uppercase',letterSpacing:'.05em'}}>Note</div>
+            <input value={editNote} onChange={e=>setEditNote(e.target.value)} placeholder="ex: Salle – Fromage – Check MEP" style={{width:'100%',padding:'8px 10px',fontSize:13,border:'0.5px solid #ccc',borderRadius:7,boxSizing:'border-box',outline:'none'}}/>
+          </div>
+          <div style={{display:'flex',gap:6}}>
+            <button onClick={clearCell} style={{padding:'7px 12px',fontSize:12,border:'0.5px solid #fca5a5',borderRadius:7,cursor:'pointer',background:'#fee2e2',color:'#991b1b'}}>Effacer</button>
+            <div style={{flex:1}}/>
+            <button onClick={()=>setEditCell(null)} style={{padding:'7px 12px',fontSize:12,border:'0.5px solid #ccc',borderRadius:7,cursor:'pointer',background:'#fff',color:'#555'}}>Annuler</button>
+            <button onClick={saveCell} style={{padding:'7px 14px',fontSize:12,border:'0.5px solid #378ADD',borderRadius:7,cursor:'pointer',background:'#378ADD',color:'#fff',fontWeight:600}}>OK</button>
+          </div>
+        </div>
+      </div>);
+    })()}
+  </div>);
+}
+
+// ─── Login Screen ─────────────────────────────────────────────────────────────
+function LoginScreen({onLogin}){
+  const [email,setEmail]=useState('');
+  const [password,setPassword]=useState('');
+  const [error,setError]=useState('');
+  const [loading,setLoading]=useState(false);
+
+  async function handleLogin(){
+    const fb=getFirebase();
+    if(!fb){setError('Firebase non initialisé. Rechargez la page.');return;}
+    setLoading(true);setError('');
+    try{
+      await fb.signInWithEmailAndPassword(fb.auth,email,password);
+      onLogin();
+    }catch(e){
+      setError('Email ou mot de passe incorrect.');
+    }finally{setLoading(false);}
+  }
+
+  return(
+    <div style={{minHeight:'100vh',background:'#f5f4f0',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'system-ui,sans-serif'}}>
+      <div style={{background:'#fff',borderRadius:16,padding:32,width:320,border:'0.5px solid #d4d2c8',boxShadow:'0 4px 24px rgba(0,0,0,.07)'}}>
+        <div style={{textAlign:'center',marginBottom:24}}>
+          <div style={{fontSize:11,letterSpacing:'.12em',color:'#888',textTransform:'uppercase',marginBottom:4}}>Le Louis XV</div>
+          <div style={{fontSize:18,fontWeight:700,color:'#1a1a1a'}}>Carcasse &amp; Compo</div>
+        </div>
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:11,color:'#888',marginBottom:4}}>Email</div>
+          <input
+            type="email"
+            value={email}
+            onChange={e=>setEmail(e.target.value)}
+            onKeyDown={e=>e.key==='Enter'&&handleLogin()}
+            placeholder="votre@email.com"
+            style={{width:'100%',padding:'9px 12px',fontSize:13,border:'0.5px solid #ccc',borderRadius:8,boxSizing:'border-box',outline:'none'}}
+          />
+        </div>
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:11,color:'#888',marginBottom:4}}>Mot de passe</div>
+          <input
+            type="password"
+            value={password}
+            onChange={e=>setPassword(e.target.value)}
+            onKeyDown={e=>e.key==='Enter'&&handleLogin()}
+            placeholder="••••••••"
+            style={{width:'100%',padding:'9px 12px',fontSize:13,border:'0.5px solid #ccc',borderRadius:8,boxSizing:'border-box',outline:'none'}}
+          />
+        </div>
+        {error&&<div style={{fontSize:12,color:'#dc2626',marginBottom:12,textAlign:'center'}}>{error}</div>}
+        <button
+          onClick={handleLogin}
+          disabled={loading}
+          style={{width:'100%',padding:'10px',background:'#1a1a1a',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:loading?'default':'pointer',opacity:loading?0.6:1}}
+        >{loading?'Connexion…':'Se connecter'}</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main App ─────────────────────────────────────────────────────────────────
+function App(){
+  const [authState,setAuthState]=useState('checking'); // 'checking' | 'logged-out' | 'logged-in'
+  const [userEmail,setUserEmail]=useState('');
+  const [tab,setTab]=useState('carcasse');
+  const [services,setServices]=useState(DEFAULT_SERVICES);
+  const [tables,setTables]=useState(()=>buildDefault(DEFAULT_SERVICES));
+  const [terrasseMode,setTerrasseMode]=useState(()=>Object.fromEntries(DEFAULT_SERVICES.map(s=>[s.id,false])));
+  const [manual,setManual]=useState(()=>Object.fromEntries(DEFAULT_SERVICES.map(s=>[s.id,{}])));
+  const [currentService,setCurrentService]=useState('mar-d');
+  const [compos,setCompos]=useState(()=>Object.fromEntries(DEFAULT_SERVICES.map(s=>[s.id,buildEmptyCompo()])));
+  const [team,setTeam]=useState(INITIAL_TEAM);
+  const [planning,setPlanning]=useState({weekLabel:'',days:[{id:'lun',label:'Lundi'},{id:'mar',label:'Mardi'},{id:'mer',label:'Mercredi'},{id:'jeu',label:'Jeudi'},{id:'ven',label:'Vendredi'},{id:'sam',label:'Samedi'},{id:'dim',label:'Dimanche'}],entries:{}});
+  const [modal,setModal]=useState(null);
+  const [showSvc,setShowSvc]=useState(false);
+  const [showLinge,setShowLinge]=useState(false);
+  const [showExport,setShowExport]=useState(false);
+  const [showCopyCarcasse,setShowCopyCarcasse]=useState(false);
+  const [syncStatus,setSyncStatus]=useState('idle'); // 'idle' | 'saving' | 'saved' | 'error'
+  const saveTimerRef=useRef(null);
+  const unsubscribeRef=useRef(null);
+
+  // Auth listener
+  useEffect(()=>{
+    const fb=getFirebase();
+    if(!fb){setAuthState('logged-out');return;}
+    const unsub=fb.onAuthStateChanged(fb.auth,user=>{
+      if(user){setAuthState('logged-in');setUserEmail(user.email||'');}
+      else{setAuthState('logged-out');}
+    });
+    return()=>unsub();
+  },[]);
+
+  // Firestore real-time listener (when logged in)
+  useEffect(()=>{
+    if(authState!=='logged-in')return;
+    const fb=getFirebase();
+    if(!fb)return;
+    const ref=fb.doc(fb.db,'app','state');
+    const unsub=fb.onSnapshot(ref,snap=>{
+      if(!snap.exists())return;
+      const p=snap.data();
+      if(p.services?.length>0)setServices(p.services);
+      if(p.tables)setTables(p.tables);
+      if(p.terrasseMode)setTerrasseMode(p.terrasseMode);
+      if(p.manual)setManual(p.manual);
+      if(p.currentService)setCurrentService(p.currentService);
+      if(p.compos)setCompos(p.compos);
+      if(p.team){
+        const merged=p.team.map(saved=>{const ini=INITIAL_TEAM.find(m=>m.id===saved.id);return{...saved,gender:saved.gender||(ini?.gender??'m')};});
+        setTeam(merged);
+      }
+      if(p.planning)setPlanning(p.planning);
+    },(err)=>{console.error('Firestore error',err);setSyncStatus('error');});
+    unsubscribeRef.current=unsub;
+    return()=>{if(unsubscribeRef.current)unsubscribeRef.current();};
+  },[authState]);
+
+  const save=useCallback((svcList,tbl,ter,man,curSvc,cps,tm,pl)=>{
+    const planningToSave=pl||planning;
+    try{localStorage.setItem(STORAGE_KEY,JSON.stringify({services:svcList,tables:tbl,terrasseMode:ter,manual:man,currentService:curSvc,compos:cps,team:tm,planning:planningToSave}));}catch(e){}
+    const fb=getFirebase();
+    if(!fb||authState!=='logged-in')return;
+    setSyncStatus('saving');
+    if(saveTimerRef.current)clearTimeout(saveTimerRef.current);
+    saveTimerRef.current=setTimeout(async()=>{
+      try{
+        const ref=fb.doc(fb.db,'app','state');
+        await fb.setDoc(ref,{services:svcList,tables:tbl,terrasseMode:ter,manual:man,currentService:curSvc,compos:cps,team:tm,planning:planningToSave});
+        setSyncStatus('saved');
+        setTimeout(()=>setSyncStatus('idle'),2000);
+      }catch(e){console.error('Save error',e);setSyncStatus('error');}
+    },800);
+  },[authState,planning]);
+
+  async function handleLogout(){
+    const fb=getFirebase();
+    if(!fb)return;
+    await fb.signOut(fb.auth);
+  }
+
+  if(authState==='checking'){
+    return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'#f5f4f0',fontFamily:'system-ui,sans-serif',color:'#888',fontSize:14}}>Chargement…</div>;
+  }
+  if(authState==='logged-out'){
+    return <LoginScreen onLogin={()=>{}}/>;
+  }
+
+  const svcData=tables[currentService]||{};const currentSvcObj=services.find(s=>s.id===currentService);const man=manual[currentService]||{};
+  let ts=0,tt=0,cs=0,ct=0;SALLE.forEach(tn=>{const d=svcData[tn];if(d&&d.covers>0&&!d.isConsole){ts+=d.covers;cs+=getCavallino(tn,d.covers);}});TERRASSE.forEach(tn=>{const d=svcData[tn];if(d&&d.covers>0&&!d.isConsole){tt+=d.covers;ct+=getCavallino(tn,d.covers);}});
+
+  function toggleTerrasse(){const svc=currentService,mode=!terrasseMode[svc],newTer={...terrasseMode,[svc]:mode};const salleOff=mode?['2B','3B','5B','11','12']:['2B','3B','5B'];const salleTarget=mode?TER_SALLE:DEF_SALLE,terrTarget=mode?TER_TERRASSE:DEF_TERRASSE;const newT=dc(tables);SALLE.forEach(tn=>{const cur=newT[svc][tn];if(tn==='AQUA')newT[svc][tn]=dc(salleTarget[tn]);else if(salleOff.includes(tn))newT[svc][tn]=mkoff();else if(!cur||cur.covers===0)newT[svc][tn]=dc(salleTarget[tn]);});TERRASSE.forEach(tn=>{const cur=newT[svc][tn];const tOff=mode?[]:['19','20','21','22'];if(tn==='17')newT[svc][tn]=dc(terrTarget[tn]);else if(tOff.includes(tn))newT[svc][tn]=mkoff();else if(!cur||cur.covers===0)newT[svc][tn]=dc(terrTarget[tn]);});setTables(newT);setTerrasseMode(newTer);save(services,newT,newTer,manual,currentService,compos,team);}
+
+  function insertService(id,label,afterId){if(services.find(s=>s.id===id))return;const targetPos=ORDER.indexOf(id);let insertAt=services.findIndex(s=>s.nextWeek);if(insertAt<0)insertAt=services.length;for(let i=0;i<services.length;i++){if(ORDER.indexOf(services[i].id)>targetPos&&!services[i].nextWeek){insertAt=i;break;}}const newSvc=[...services];newSvc.splice(insertAt,0,{id,label,extra:true});const newT={...tables,[id]:dc(tables[afterId]||buildDefault([{id}])[id])};const newTer={...terrasseMode,[id]:terrasseMode[afterId]||false};const newMan={...manual,[id]:{}};const newCps={...compos,[id]:buildEmptyCompo()};setServices(newSvc);setTables(newT);setTerrasseMode(newTer);setManual(newMan);setCompos(newCps);setCurrentService(id);setShowSvc(false);save(newSvc,newT,newTer,newMan,id,newCps,team);}
+
+  function removeService(id){const idx=services.findIndex(s=>s.id===id);if(idx<0)return;const newSvc=services.filter(s=>s.id!==id);const newT={...tables};delete newT[id];const newTer={...terrasseMode};delete newTer[id];const newMan={...manual};delete newMan[id];const newCps={...compos};delete newCps[id];const newCur=newSvc[Math.max(0,idx-1)]?.id??newSvc[0]?.id??'mar-d';setServices(newSvc);setTables(newT);setTerrasseMode(newTer);setManual(newMan);setCompos(newCps);setCurrentService(newCur);setShowSvc(false);save(newSvc,newT,newTer,newMan,newCur,newCps,team);}
+
+  function openModal(tn,zone){const d=svcData[tn]||mkoff();setModal({tn,zone,covers:d.covers,plateau:d.plateau,isConsole:!!d.isConsole});}
+  function applyModal(){if(!modal)return;const{tn,covers,plateau,isConsole}=modal;const pl=covers>0?(plateau||(tn==='AQUA'?120:defaultPlateau(covers))):null;const newT=dc(tables);newT[currentService][tn]={covers,plateau:pl,isConsole:isConsole&&covers>0};if(tn==='3B'){const t4=newT[currentService]['4'];if(t4&&t4.covers>0&&!t4.isConsole)t4.plateau=suggestPlateau('4',t4.covers,newT[currentService]);}if(tn==='7B'||tn==='7'){const t6=newT[currentService]['6'];if(t6&&t6.covers>0&&!t6.isConsole)t6.plateau=suggestPlateau('6',t6.covers,newT[currentService]);}setTables(newT);setModal(null);save(services,newT,terrasseMode,manual,currentService,compos,team);}
+  function updateModalCovers(c){if(!modal)return;const pl=c===0?null:suggestPlateau(modal.tn,c,tables[currentService]);setModal({...modal,covers:c,plateau:pl,isConsole:false});}
+  function setConsoleMode(){if(!modal)return;const pl=(modal.plateau&&[100,120].includes(modal.plateau))?modal.plateau:100;setModal({...modal,isConsole:true,covers:1,plateau:pl});}
+  function saveManual(field,val){const newMan={...manual,[currentService]:{...(manual[currentService]||{}),[field]:val===''?null:parseInt(val)}};setManual(newMan);save(services,tables,terrasseMode,newMan,currentService,compos,team);}
+
+  const mvtData=getMvtData(tables,services,currentService);
+  const mvtTitle=mvtData?('Carcasse '+mvtData.prevLabel+' → '+(currentSvcObj?.label??'')):'Carcasse';
+  const lingeData=getLingeData(tables,services);
+  const isAqua=modal?.tn==='AQUA';const modalCovers=modal?.covers??0;const modalPlateau=modal?.plateau??null;const modalIsConsole=modal?.isConsole??false;
+  const cavSpec=modal&&modalCovers>0?getCavallino(modal.tn,modalCovers):0;const nappeSpec=modalPlateau?NAPPE_MAP[modalPlateau]:null;const autoPlSpec=modal&&!isAqua&&!modalIsConsole?suggestPlateau(modal.tn,modalCovers,svcData):null;const plateauWarn=!!(modal&&!isAqua&&!modalIsConsole&&autoPlSpec&&modalPlateau!==autoPlSpec);const allowedPl=(isAqua||modalIsConsole)?[100,120]:PLATEAUX;
+  const allSvcState={services,tables,terrasseMode,manual};
+
+  const syncDot={idle:null,saving:{bg:'#fbbf24',label:'Sync…'},saved:{bg:'#22c55e',label:'Sync OK'},error:{bg:'#ef4444',label:'Erreur sync'}}[syncStatus];
+
+  const svcRows=[];let row=[];
+  services.forEach((s,i)=>{if(LINE_BREAKS_BEFORE.includes(s.id)&&row.length>0){svcRows.push(<div key={'row'+i} style={{display:'flex',gap:4,width:'100%',flexWrap:'wrap'}}>{row}</div>);row=[];}const isA=currentService===s.id;row.push(<button key={s.id} onClick={()=>{setCurrentService(s.id);save(services,tables,terrasseMode,manual,s.id,compos,team);}} style={{padding:'6px 10px',fontSize:12,borderRadius:6,cursor:'pointer',background:isA?(s.nextWeek?'#ede9fe':'#dbeafe'):'#fff',color:isA?(s.nextWeek?'#5b21b6':'#1e40af'):'#555',fontWeight:isA?500:400,border:'0.5px solid '+(isA?(s.nextWeek?'#c4b5fd':'#93c5fd'):'#ccc'),borderStyle:s.nextWeek&&!isA?'dashed':'solid'}}>{s.label}</button>);});
+  if(row.length>0)svcRows.push(<div key="rowlast" style={{display:'flex',gap:4,width:'100%',flexWrap:'wrap'}}>{row}</div>);
+
+  return(<div style={{fontFamily:'system-ui,sans-serif',background:'#f5f4f0',color:'#1a1a1a',padding:'12px',minHeight:'100vh'}}>
+    <div style={{maxWidth:960,margin:'0 auto'}}>
+      {/* Header avec sync status + logout */}
+      <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+        <div style={{display:'flex',gap:4,flex:1}}>{['carcasse','compo'].map(t=>(<button key={t} onClick={()=>setTab(t)} style={{padding:'8px 20px',fontSize:13,fontWeight:tab===t?700:400,borderRadius:8,border:'none',cursor:'pointer',background:tab===t?'#1a1a1a':'#ececea',color:tab===t?'#fff':'#555',transition:'all .15s'}}>{t==='carcasse'?'Carcasse':'Composition'}</button>))}</div>
+        {syncDot&&<div style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:'#555'}}><div style={{width:7,height:7,borderRadius:'50%',background:syncDot.bg}}/>{syncDot.label}</div>}
+        <div style={{fontSize:11,color:'#aaa',maxWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{userEmail}</div>
+        <button onClick={handleLogout} style={{fontSize:11,padding:'4px 10px',borderRadius:6,border:'0.5px solid #e5e7eb',cursor:'pointer',background:'#fff',color:'#888'}}>Déconnexion</button>
+      </div>
+
+      {tab==='carcasse'&&(<div>
+        <div style={{display:'flex',alignItems:'flex-start',gap:8,flexWrap:'wrap',marginBottom:12,padding:'10px 12px',background:'#ececea',borderRadius:8,border:'0.5px solid #d4d2c8'}}>
+          <span style={{fontSize:13,color:'#666',paddingTop:7}}>Service :</span>
+          <div style={{display:'flex',gap:4,flexWrap:'wrap',flex:1,alignItems:'flex-start'}}>{svcRows}</div>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',paddingTop:2}}>
+            <button onClick={toggleTerrasse} style={{padding:'6px 14px',fontSize:12,fontWeight:500,borderRadius:6,cursor:'pointer',background:terrasseMode[currentService]?'#dcfce7':'#fff',color:terrasseMode[currentService]?'#166534':'#555',border:'0.5px solid '+(terrasseMode[currentService]?'#86efac':'#ccc')}}>Terrasse</button>
+            <button onClick={()=>setShowSvc(true)} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>+ Service</button>
+            <button onClick={()=>setShowCopyCarcasse(true)} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Initialiser</button>
+            <button onClick={()=>setShowLinge(true)} style={{padding:'6px 14px',fontSize:12,fontWeight:500,border:'0.5px solid #c4b5fd',borderRadius:6,cursor:'pointer',background:'#ede9fe',color:'#5b21b6'}}>Linge</button>
+            <button onClick={()=>setShowExport(true)} style={{padding:'6px 14px',fontSize:12,fontWeight:600,border:'0.5px solid #86efac',borderRadius:6,cursor:'pointer',background:'#dcfce7',color:'#166634'}}>Exporter</button>
+          </div>
+        </div>
+
+        <div style={{display:'flex',justifyContent:'center',gap:8,marginBottom:12}}>
+          <div style={{width:140}}><TotCard label="Pax" bg="#fef3c7"><input type="number" min={0} max={999} placeholder="–" value={man.pax==null?'':man.pax} onChange={e=>saveManual('pax',e.target.value)} style={{fontSize:26,fontWeight:700,color:'#b45309',border:'none',background:'transparent',width:'100%',textAlign:'center',outline:'none',padding:'8px 4px 4px'}}/></TotCard></div>
+          <div style={{width:140}}><TotCard label="Tables" bg="#fef3c7"><input type="number" min={0} max={999} placeholder="–" value={man.tables==null?'':man.tables} onChange={e=>saveManual('tables',e.target.value)} style={{fontSize:26,fontWeight:700,color:'#b45309',border:'none',background:'transparent',width:'100%',textAlign:'center',outline:'none',padding:'8px 4px 4px'}}/></TotCard></div>
+        </div>
+
+        {(()=>{
+          const buildRecap=(list)=>{const pl={},pieds={petit:0,gros:0};list.forEach(tn=>{const d=svcData[tn];if(!d||d.covers<=0||!d.plateau)return;pl[d.plateau]=(pl[d.plateau]||0)+1;pieds[piedFromPlateau(d.plateau)]=(pieds[piedFromPlateau(d.plateau)]||0)+1;});const lines=[];if(pieds.petit>0)lines.push({key:'pp',text:`${pieds.petit} petit${pieds.petit>1?'s':''} pied${pieds.petit>1?'s':''}`});if(pieds.gros>0)lines.push({key:'pg',text:`${pieds.gros} gros pied${pieds.gros>1?'s':''}`});[100,120,140,180,200].filter(p=>pl[p]).forEach(p=>lines.push({key:'pl'+p,text:`${pl[p]} plateau${pl[p]>1?'x':''} ${PL}${p}`}));return lines;};
+          const recapSalle=buildRecap(SALLE);const recapTerrasse=buildRecap(TERRASSE);const recapAll=buildRecap([...SALLE,...TERRASSE]);
+          const recapStyle={fontSize:12,color:'#555',padding:'6px 10px',background:'#f5f4f0',borderRadius:7,textAlign:'center',letterSpacing:'.03em'};
+          const renderLines=items=>items.map(({key,text})=><div key={key}>{text}</div>);
+          return(<>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:6}}>
+              <ZoneBlock title="Salle" tables={SALLE} svcData={svcData} onOpen={openModal} zone="salle"/>
+              <ZoneBlock title="Terrasse" tables={TERRASSE} svcData={svcData} onOpen={openModal} zone="terrasse"/>
+            </div>
+            <div style={{display:'flex',justifyContent:'center',gap:8,marginBottom:6}}>
+              {[{label:'Salle',f:ts,c:cs+3,bg:'#ececea',fc:'#1a1a1a',cc:'#888'},{label:'Terrasse',f:tt,c:ct,bg:'#ececea',fc:'#1a1a1a',cc:'#888'},{label:'Total',f:ts+tt,c:cs+ct+3,bg:'#dbeafe',fc:'#1d4ed8',cc:'#60a5fa'}].map(({label,f,c,bg,fc,cc})=>(<div key={label} style={{width:140}}><TotCard label={label} bg={bg}><div style={{fontSize:22,fontWeight:700,color:fc,lineHeight:1,padding:'6px 4px 1px'}}>{f}</div><div style={{fontSize:9,color:cc,paddingBottom:1}}>Fauteuils</div><div style={{fontSize:16,fontWeight:600,color:fc,lineHeight:1,padding:'1px 4px'}}>{c}</div><div style={{fontSize:9,color:cc,paddingBottom:6}}>Cavallino</div></TotCard></div>))}
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:6}}>
+              {recapSalle.length>0?<div style={recapStyle}>{renderLines(recapSalle)}</div>:<div/>}
+              {recapTerrasse.length>0?<div style={recapStyle}>{renderLines(recapTerrasse)}</div>:<div/>}
+            </div>
+            {recapAll.length>0&&<div style={{...recapStyle,marginBottom:12}}><div style={{fontWeight:600,marginBottom:4,color:'#1a1a1a'}}>Total</div>{renderLines(recapAll)}</div>}
+          </>);
+        })()}
+
+        <div style={{border:'0.5px solid #d4d2c8',borderRadius:12,padding:12,background:'#fff',marginBottom:12}}>
+          <div style={{fontSize:13,fontWeight:500,marginBottom:8}}>{mvtTitle}</div>
+          <MvtBlock {...(mvtData||{})}/>
+        </div>
+        <SalleEmpireBlock tables={tables} services={services} currentService={currentService}/>
+      </div>)}
+
+      {tab==='compo'&&(<CompoView services={services} currentService={currentService} setCurrentService={setCurrentService} tables={tables} compos={compos} setCompos={setCompos} team={team} setTeam={setTeam} save={save} allSvcState={allSvcState}/>)}
+    </div>
+
+    {modal&&(<div onClick={e=>{if(e.target===e.currentTarget)setModal(null);}} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:100}}><div style={{background:'#fff',borderRadius:12,padding:20,width:340,border:'0.5px solid #ddd'}}>
+      <h3 style={{fontSize:15,fontWeight:500,marginBottom:4}}>Table {modal.tn}</h3>
+      <div style={{fontSize:12,color:'#888',marginBottom:12}}>{modal.zone==='salle'?'Salle':'Terrasse'}</div>
+      {isAqua&&<div style={{fontSize:11,color:'#065f46',background:'#d1fae5',padding:'6px 8px',borderRadius:6,marginBottom:12}}>{'Table AQUA : 5 pax max · plateau '+PL+'100 ou '+PL+'120 uniquement'}</div>}
+      <div style={{fontSize:11,textTransform:'uppercase',letterSpacing:'.07em',color:'#888',marginBottom:6,fontWeight:500}}>Couverts</div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:5,marginBottom:14}}>
+        <button onClick={()=>setModal({...modal,covers:0,plateau:null,isConsole:false})} style={{padding:'8px 2px',textAlign:'center',border:'0.5px solid #fca5a5',borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:500,color:'#b91c1c',background:'#fee2e2'}}>OFF</button>
+        {!isAqua&&<button onClick={setConsoleMode} style={{padding:'8px 2px',textAlign:'center',border:'0.5px solid '+(modalIsConsole?'#d97706':'#fcd34d'),borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:500,color:modalIsConsole?'#451a03':'#92400e',background:modalIsConsole?'#fcd34d':'#fef3c7'}}>Console</button>}
+        {Array.from({length:isAqua?5:11},(_,i)=>i+1).map(n=><button key={n} onClick={()=>updateModalCovers(n)} style={{padding:'8px 2px',textAlign:'center',border:'0.5px solid '+(!modalIsConsole&&modalCovers===n?'#378ADD':'#ccc'),borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:500,color:!modalIsConsole&&modalCovers===n?'#1e40af':'#1a1a1a',background:!modalIsConsole&&modalCovers===n?'#dbeafe':'#f5f4f0'}}>{n}</button>)}
+      </div>
+      {modalCovers>0&&(<div>
+        <div style={{fontSize:11,textTransform:'uppercase',letterSpacing:'.07em',color:'#888',marginBottom:6,fontWeight:500}}>Plateau</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:5,marginBottom:14}}>{PLATEAUX.map(pl=>{const dis=!allowedPl.includes(pl);return <button key={pl} disabled={dis} onClick={()=>setModal({...modal,plateau:pl})} style={{padding:'7px 2px',textAlign:'center',borderRadius:6,cursor:dis?'not-allowed':'pointer',fontSize:11,fontWeight:500,lineHeight:1.3,opacity:dis?0.3:1,color:modalPlateau===pl?'#1e40af':'#555',background:modalPlateau===pl?'#dbeafe':'#f5f4f0',border:'0.5px solid '+(modalPlateau===pl?'#378ADD':'#ccc')}}>{PL+pl}<br/><span style={{fontSize:9,opacity:.7}}>{piedFromPlateau(pl)+' pied'}</span></button>;})}</div>
+      </div>)}
+      <div style={{background:'#f5f4f0',borderRadius:6,padding:10,fontSize:12,lineHeight:1.7,color:'#666',marginBottom:14,minHeight:44}}>
+        {modalCovers===0&&<span style={{color:'#1a1a1a',fontWeight:500}}>Hors service</span>}
+        {modalCovers>0&&modalIsConsole&&<span><span style={{color:'#1a1a1a',fontWeight:500}}>Console</span>{' · '}<span style={{color:'#1a1a1a',fontWeight:500}}>1 petit pied</span>{' · '}<span style={{color:'#1a1a1a',fontWeight:500}}>{'plateau '+PL+modalPlateau}</span></span>}
+        {modalCovers>0&&!modalIsConsole&&<span><span style={{color:'#1a1a1a',fontWeight:500}}>{cavSpec+' cavallino'}</span>{' · '}<span style={{color:'#1a1a1a',fontWeight:500}}>{'1 '+piedFromPlateau(modalPlateau||100)+' pied'}</span>{' · '}<span style={{color:'#1a1a1a',fontWeight:500}}>{'plateau '+PL+modalPlateau}</span>{nappeSpec&&<span>{' · '}<span style={{color:'#1a1a1a',fontWeight:500}}>{'nappe '+PL+nappeSpec}</span></span>}{plateauWarn&&<span><br/><span style={{color:'#b45309',fontSize:11}}>{'Plateau personnalisé (défaut : '+PL+autoPlSpec+')'}</span></span>}</span>}
+      </div>
+      <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+        <button onClick={()=>setModal(null)} style={{padding:'7px 16px',borderRadius:6,border:'0.5px solid #ccc',cursor:'pointer',fontSize:13,background:'#fff',color:'#1a1a1a'}}>Annuler</button>
+        <button onClick={applyModal} style={{padding:'7px 16px',borderRadius:6,border:'0.5px solid #378ADD',cursor:'pointer',fontSize:13,background:'#378ADD',color:'#fff'}}>Valider</button>
+      </div>
+    </div></div>)}
+
+    {showSvc&&(<div onClick={e=>{if(e.target===e.currentTarget)setShowSvc(false);}} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200}}><div style={{background:'#f5f4f0',borderRadius:12,padding:20,maxWidth:360,width:'90%',maxHeight:'80vh',overflowY:'auto'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}><span style={{fontWeight:700,fontSize:14}}>Gérer les services</span><button onClick={()=>setShowSvc(false)} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#888'}}>×</button></div>
+      {(()=>{const av=ALL_POSSIBLE.filter(x=>!services.find(s=>s.id===x.id));if(!av.length)return <p style={{color:'#888',fontSize:13,textAlign:'center'}}>Aucun service disponible.</p>;return <div><div style={{fontSize:11,fontWeight:600,color:'#555',marginBottom:6,textTransform:'uppercase',letterSpacing:'.05em'}}>Ajouter</div>{av.map(x=>{const aL=services.find(s=>s.id===x.after)?.label??'';const bL=services.find(s=>s.id===x.before)?.label??'';const pos=aL&&bL?('Entre '+aL+' et '+bL):bL?('Avant '+bL):'En premier';return <button key={x.id} onClick={()=>insertService(x.id,x.label,x.after)} style={{display:'block',width:'100%',marginBottom:6,padding:'9px 12px',border:'0.5px solid #ccc',borderRadius:8,background:'#fff',fontSize:13,cursor:'pointer',textAlign:'left',fontWeight:500}}>{x.label}<span style={{fontSize:10,color:'#aaa',display:'block',fontWeight:400}}>{pos}</span></button>;})}</div>;})()}
+      {(()=>{const del=services.filter(s=>!s.nextWeek);if(!del.length)return null;return <div><div style={{fontSize:11,fontWeight:600,color:'#555',marginTop:14,marginBottom:6,textTransform:'uppercase',letterSpacing:'.05em'}}>Supprimer</div>{del.map(s=><div key={s.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6,padding:'9px 12px',border:'0.5px solid #eee',borderRadius:8,background:'#fff'}}><span style={{fontSize:13}}>{s.label}</span><button onClick={()=>removeService(s.id)} style={{background:'#fee2e2',color:'#991b1b',border:'none',borderRadius:6,padding:'4px 10px',fontSize:11,cursor:'pointer',fontWeight:600}}>Supprimer</button></div>)}</div>;})()}
+    </div></div>)}
+
+    {showLinge&&(<div style={{position:'fixed',inset:0,zIndex:300,overflowY:'auto',background:'#f5f4f0',padding:16}}><div style={{maxWidth:500,margin:'0 auto'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14,paddingBottom:10,borderBottom:'1px solid #d4d2c8'}}><span style={{fontSize:16,fontWeight:700}}>Linge</span><button onClick={()=>setShowLinge(false)} style={{background:'#1a1a1a',color:'#fff',border:'none',borderRadius:6,padding:'7px 14px',fontSize:12,cursor:'pointer'}}>Fermer</button></div>
+      {[{title:'Semaine complète',bg:'#fff',nObj:lingeData.wkN,f:lingeData.wkF},{title:'Vendredi + Samedi',bg:'#ede9fe',nObj:lingeData.vsN,f:lingeData.vsF}].map(({title,bg,nObj,f})=>(<div key={title} style={{background:bg,borderRadius:8,padding:12,marginBottom:10}}><div style={{fontSize:12,fontWeight:700,color:'#1a1a1a',marginBottom:8}}>{title}</div><div style={{fontSize:11,color:'#888',marginBottom:4,textTransform:'uppercase',letterSpacing:'.04em'}}>Nappes</div>{[180,200,220,260,280].filter(k=>nObj[k]>0).map(k=><div key={k} style={{display:'flex',justifyContent:'space-between',padding:'3px 0',fontSize:12}}><span style={{color:'#555'}}>{PL+k}</span><span style={{fontWeight:600}}>{nObj[k]}</span></div>)}<div style={{fontSize:11,color:'#888',marginTop:8,marginBottom:4,textTransform:'uppercase',letterSpacing:'.04em'}}>Serviettes</div><div style={{display:'flex',justifyContent:'space-between',padding:'3px 0',fontSize:12}}><span style={{color:'#555'}}>Serviettes ×25 par paquet</span><span style={{fontWeight:600}}>{(Math.ceil(f/25)||0)+' paquet'+(Math.ceil(f/25)>1?'s':'')}</span></div><div style={{display:'flex',justifyContent:'space-between',padding:'3px 0',fontSize:12}}><span style={{color:'#555'}}>Serviettes à dessert ×50 par paquet</span><span style={{fontWeight:600}}>{(Math.ceil(f/50)||0)+' paquet'+(Math.ceil(f/50)>1?'s':'')}</span></div></div>))}
+    </div></div>)}
+
+    {showCopyCarcasse&&(<div onClick={e=>{if(e.target===e.currentTarget)setShowCopyCarcasse(false);}} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200}}><div style={{background:'#fff',borderRadius:12,padding:24,width:320,border:'0.5px solid #ddd',maxHeight:'80vh',overflowY:'auto'}}>
+      <div style={{fontSize:15,fontWeight:600,marginBottom:12}}>Initialiser la carcasse</div>
+      <div style={{fontSize:11,fontWeight:600,color:'#555',marginBottom:8,textTransform:'uppercase',letterSpacing:'.05em'}}>Copier depuis</div>
+      {services.filter(s=>s.id!==currentService).map(s=>{const sd=tables[s.id];return(<button key={s.id} onClick={()=>{const newT=dc(tables);newT[currentService]={};[...SALLE,...TERRASSE].forEach(tn=>{newT[currentService][tn]=dc((sd&&sd[tn])||mkoff());});setTables(newT);save(services,newT,terrasseMode,manual,currentService,compos,team);setShowCopyCarcasse(false);}} style={{display:'block',width:'100%',marginBottom:6,padding:'9px 12px',border:'0.5px solid #378ADD',borderRadius:8,cursor:'pointer',background:'#dbeafe',color:'#1e40af',fontSize:13,fontWeight:500,textAlign:'left'}}>{s.label}</button>);})}
+      <button onClick={()=>{const newT=dc(tables);newT[currentService]={};[...SALLE,...TERRASSE].forEach(tn=>{newT[currentService][tn]=mkoff();});setTables(newT);save(services,newT,terrasseMode,manual,currentService,compos,team);setShowCopyCarcasse(false);}} style={{display:'block',width:'100%',marginTop:8,padding:'10px',border:'0.5px solid #ccc',borderRadius:8,cursor:'pointer',background:'#fff',color:'#555',fontSize:13}}>Remettre à zéro</button>
+      <button onClick={()=>setShowCopyCarcasse(false)} style={{display:'block',width:'100%',marginTop:6,padding:'8px',border:'none',background:'none',cursor:'pointer',color:'#aaa',fontSize:12}}>Annuler</button>
+    </div></div>)}
+    {showExport&&<CarcasseExport onClose={()=>setShowExport(false)} services={services} tables={tables} currentService={currentService} manual={manual}/>}
+  </div>);
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
