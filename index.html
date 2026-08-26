@@ -2700,7 +2700,7 @@ function CaisseView({userEmail}){
       <div style={{background:'#fff',borderRadius:10,padding:'10px 12px',border:'0.5px solid #d4d2c8'}}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
           <span style={{fontSize:13,fontWeight:600,color:'#1a1a1a'}}>Montant à verser</span>
-          <input data-caisse-input type="tel" inputMode="numeric" pattern="[0-9]*" min={0} value={vals.montantAVerser} onChange={e=>setTopField('montantAVerser',e.target.value.replace(/[^0-9]/g,''))} onKeyDown={handleEnterNext} onFocus={e=>e.target.select()} placeholder="0" style={{width:110,padding:'6px 8px',fontSize:15,fontWeight:700,border:'0.5px solid #ccc',borderRadius:6,textAlign:'center',outline:'none'}}/>
+          <input data-caisse-input type="tel" inputMode="numeric" pattern="[0-9]*" enterKeyHint="next" min={0} value={vals.montantAVerser} onChange={e=>setTopField('montantAVerser',e.target.value.replace(/[^0-9]/g,''))} onKeyDown={handleEnterNext} onFocus={e=>e.target.select()} placeholder="0" style={{width:110,padding:'6px 8px',fontSize:15,fontWeight:700,border:'0.5px solid #ccc',borderRadius:6,textAlign:'center',outline:'none'}}/>
         </div>
       </div>
 
@@ -2710,17 +2710,17 @@ function CaisseView({userEmail}){
           <tbody>
             {CAISSE_BILLETS.map(d=>(<tr key={'b'+d}>
               <td style={{fontSize:12,padding:'4px 8px',borderBottom:'1px solid #ececea'}}>{d}€ (billet)</td>
-              <td style={{borderBottom:'1px solid #ececea'}}><input data-caisse-input type="tel" inputMode="numeric" pattern="[0-9]*" min={0} value={vals.billets[d]} onChange={e=>setField('billets',d,e.target.value.replace(/[^0-9]/g,''))} onKeyDown={handleEnterNext} onFocus={e=>e.target.select()} style={inputStyle}/></td>
+              <td style={{borderBottom:'1px solid #ececea'}}><input data-caisse-input type="tel" inputMode="numeric" pattern="[0-9]*" enterKeyHint="next" min={0} value={vals.billets[d]} onChange={e=>setField('billets',d,e.target.value.replace(/[^0-9]/g,''))} onKeyDown={handleEnterNext} onFocus={e=>e.target.select()} style={inputStyle}/></td>
               <td style={{fontSize:12,fontWeight:600,textAlign:'center',padding:'4px 8px',borderBottom:'1px solid #ececea'}}>{fmtEuro((parseFloat(vals.billets[d])||0)*d)}</td>
             </tr>))}
             {CAISSE_PIECES.map(d=>(<tr key={'p'+d}>
               <td style={{fontSize:12,padding:'4px 8px',borderBottom:'1px solid #ececea'}}>{d}€ (pièce)</td>
-              <td style={{borderBottom:'1px solid #ececea'}}><input data-caisse-input type="tel" inputMode="numeric" pattern="[0-9]*" min={0} value={vals.pieces[d]} onChange={e=>setField('pieces',d,e.target.value.replace(/[^0-9]/g,''))} onKeyDown={handleEnterNext} onFocus={e=>e.target.select()} style={inputStyle}/></td>
+              <td style={{borderBottom:'1px solid #ececea'}}><input data-caisse-input type="tel" inputMode="numeric" pattern="[0-9]*" enterKeyHint="next" min={0} value={vals.pieces[d]} onChange={e=>setField('pieces',d,e.target.value.replace(/[^0-9]/g,''))} onKeyDown={handleEnterNext} onFocus={e=>e.target.select()} style={inputStyle}/></td>
               <td style={{fontSize:12,fontWeight:600,textAlign:'center',padding:'4px 8px',borderBottom:'1px solid #ececea'}}>{fmtEuro((parseFloat(vals.pieces[d])||0)*d)}</td>
             </tr>))}
             {CAISSE_ROULEAUX.map(d=>(<tr key={'r'+d}>
               <td style={{fontSize:12,padding:'4px 8px',borderBottom:'1px solid #ececea'}}>{d}€ (rouleau ×25)</td>
-              <td style={{borderBottom:'1px solid #ececea'}}><input data-caisse-input type="tel" inputMode="numeric" pattern="[0-9]*" min={0} value={vals.rouleaux[d]} onChange={e=>setField('rouleaux',d,e.target.value.replace(/[^0-9]/g,''))} onKeyDown={handleEnterNext} onFocus={e=>e.target.select()} style={inputStyle}/></td>
+              <td style={{borderBottom:'1px solid #ececea'}}><input data-caisse-input type="tel" inputMode="numeric" pattern="[0-9]*" enterKeyHint="next" min={0} value={vals.rouleaux[d]} onChange={e=>setField('rouleaux',d,e.target.value.replace(/[^0-9]/g,''))} onKeyDown={handleEnterNext} onFocus={e=>e.target.select()} style={inputStyle}/></td>
               <td style={{fontSize:12,fontWeight:600,textAlign:'center',padding:'4px 8px',borderBottom:'1px solid #ececea'}}>{fmtEuro((parseFloat(vals.rouleaux[d])||0)*d*25)}</td>
             </tr>))}
           </tbody>
@@ -2730,7 +2730,7 @@ function CaisseView({userEmail}){
       <div style={{background:'#fff',borderRadius:10,padding:'10px 12px',border:'0.5px solid #d4d2c8',display:'flex',flexDirection:'column',gap:8}}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
           <span style={{fontSize:12,color:'#555'}}>Fond de référence</span>
-          <input data-caisse-input type="tel" inputMode="numeric" pattern="[0-9]*" min={0} value={vals.fond} onChange={e=>setTopField('fond',e.target.value.replace(/[^0-9]/g,''))} onKeyDown={handleEnterNext} onFocus={e=>e.target.select()} style={{width:100,padding:'4px 6px',fontSize:13,fontWeight:600,border:'0.5px solid #ccc',borderRadius:6,textAlign:'center',outline:'none'}}/>
+          <input data-caisse-input type="tel" inputMode="numeric" pattern="[0-9]*" enterKeyHint="next" min={0} value={vals.fond} onChange={e=>setTopField('fond',e.target.value.replace(/[^0-9]/g,''))} onKeyDown={handleEnterNext} onFocus={e=>e.target.select()} style={{width:100,padding:'4px 6px',fontSize:13,fontWeight:600,border:'0.5px solid #ccc',borderRadius:6,textAlign:'center',outline:'none'}}/>
         </div>
         <div style={{borderTop:'1px solid #ececea',paddingTop:8,display:'flex',flexDirection:'column',gap:4}}>
           <div style={{display:'flex',justifyContent:'space-between',fontSize:13,fontWeight:700}}><span>Total compté</span><span>{fmtEuro(totals.total)}</span></div>
