@@ -2625,23 +2625,11 @@ function CaisseView({userEmail}){
   const caisseSaveTimersRef=useRef({});
   const caissePendingRef=useRef(0);
   const containerRef=useRef(null);
-  const [kbTop,setKbTop]=useState(null); // position en pixels juste au-dessus du clavier iOS, null si fermé
   const [caisseFocused,setCaisseFocused]=useState(false); // un champ de la caisse a-t-il le focus actuellement
-
-  // Le clavier numérique iOS n'a pas de touche "Entrée" (aucune solution native fiable), donc on
-  // construit notre propre barre "Champ suivant" positionnée juste au-dessus du clavier grâce à
-  // l'API visualViewport, qui expose la hauteur réellement visible une fois le clavier ouvert.
-  useEffect(()=>{
-    function updateKb(){
-      if(!window.visualViewport)return;
-      const gap=window.innerHeight-window.visualViewport.height-window.visualViewport.offsetTop;
-      setKbTop(gap>100?window.visualViewport.height+window.visualViewport.offsetTop:null);
-    }
-    updateKb();
-    window.visualViewport?.addEventListener('resize',updateKb);
-    window.visualViewport?.addEventListener('scroll',updateKb);
-    return()=>{window.visualViewport?.removeEventListener('resize',updateKb);window.visualViewport?.removeEventListener('scroll',updateKb);};
-  },[]);
+  // Le clavier numérique iOS n'a pas de touche "Entrée". Une barre "collée au clavier" (position fixe
+  // en bas + calcul via visualViewport) s'est révélée peu fiable sur iOS (bug connu : le bas fixe
+  // reste ancré au bas de la page entière, pas à ce qui est visible, obligeant à scroller). On fixe
+  // donc la barre en HAUT de l'écran à la place — cette zone n'est pas affectée par ce problème.
 
   useEffect(()=>{
     let cancelled=false;
@@ -2759,8 +2747,8 @@ function CaisseView({userEmail}){
         </div>
       </div>
     </>)}
-    {kbTop!==null&&caisseFocused&&(
-      <div style={{position:'fixed',left:0,right:0,top:kbTop-44,height:44,background:'#e8e8e6',borderTop:'0.5px solid #ccc',display:'flex',alignItems:'center',justifyContent:'flex-end',padding:'0 12px',zIndex:400}}>
+    {caisseFocused&&(
+      <div style={{position:'fixed',left:0,right:0,top:0,height:44,background:'#e8e8e6',borderBottom:'0.5px solid #ccc',display:'flex',alignItems:'center',justifyContent:'flex-end',padding:'0 12px',zIndex:400,boxShadow:'0 2px 6px rgba(0,0,0,.08)'}}>
         <button onMouseDown={e=>e.preventDefault()} onTouchStart={e=>e.preventDefault()} onClick={()=>{const el=document.activeElement;if(el&&el.hasAttribute('data-caisse-input'))focusNextCaisseInput(el);}} style={{padding:'8px 18px',fontSize:13,fontWeight:600,border:'none',borderRadius:6,background:'#378ADD',color:'#fff',cursor:'pointer'}}>Champ suivant ▼</button>
       </div>
     )}
