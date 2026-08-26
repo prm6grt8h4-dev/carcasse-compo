@@ -4490,7 +4490,7 @@ function App(){
   const [userEmail,setUserEmail]=useState('');
   const [tab,setTab]=useState('carcasse');
   const [lingeSubTab,setLingeSubTab]=useState('journalier'); // 'journalier' | 'reception'
-  const [fromageSubTab,setFromageSubTab]=useState('compte'); // 'compte' | 'carte'
+  const [fromageSubTab,setFromageSubTab]=useState('carte'); // 'compte' | 'carte'
   const [services,setServices]=useState(DEFAULT_SERVICES);
   const [tables,setTables]=useState(()=>buildDefault(DEFAULT_SERVICES));
   const [terrasseMode,setTerrasseMode]=useState(()=>Object.fromEntries(DEFAULT_SERVICES.map(s=>[s.id,false])));
