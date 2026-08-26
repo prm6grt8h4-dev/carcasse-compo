@@ -4265,7 +4265,7 @@ function ExplicationsView({menuFicheUrl,saveMenuFicheUrl,roleLinge}){
   return(<div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:16,padding:'20px 12px'}}>
     <div style={{fontSize:14,fontWeight:600,color:'#1a1a1a'}}>Fiches explications du menu</div>
     {menuFicheUrl?(
-      <a href={menuFicheUrl} target="_blank" rel="noopener noreferrer" style={{padding:'14px 28px',background:'#1a1a1a',color:'#fff',borderRadius:8,fontSize:14,fontWeight:600,textDecoration:'none'}}>
+      <a href={menuFicheUrl} target="_blank" rel="noopener noreferrer" style={{padding:'14px 28px',background:'#378ADD',color:'#fff',borderRadius:8,fontSize:14,fontWeight:600,textDecoration:'none'}}>
         📄 Ouvrir les explications Maître d'Hôtel
       </a>
     ):(
@@ -5033,8 +5033,8 @@ function App(){
       </div>)}
       {tab==='fromage'&&(<div style={{display:'flex',flexDirection:'column',gap:10}}>
         <div style={{display:'flex',gap:6,justifyContent:'center'}}>
-          <button onClick={()=>setFromageSubTab('compte')} style={{padding:'7px 16px',fontSize:12,fontWeight:fromageSubTab==='compte'?700:400,borderRadius:8,border:'none',cursor:'pointer',background:fromageSubTab==='compte'?'#378ADD':'#ececea',color:fromageSubTab==='compte'?'#fff':'#555'}}>Inventaire</button>
           <button onClick={()=>setFromageSubTab('carte')} style={{padding:'7px 16px',fontSize:12,fontWeight:fromageSubTab==='carte'?700:400,borderRadius:8,border:'none',cursor:'pointer',background:fromageSubTab==='carte'?'#378ADD':'#ececea',color:fromageSubTab==='carte'?'#fff':'#555'}}>Carte des fromages</button>
+          <button onClick={()=>setFromageSubTab('compte')} style={{padding:'7px 16px',fontSize:12,fontWeight:fromageSubTab==='compte'?700:400,borderRadius:8,border:'none',cursor:'pointer',background:fromageSubTab==='compte'?'#378ADD':'#ececea',color:fromageSubTab==='compte'?'#fff':'#555'}}>Inventaire</button>
         </div>
         {fromageSubTab==='compte'&&<FromageView currentService={currentService} services={services} userEmail={userEmail} fromageList={fromageList} setFromageList={setFromageList} saveFromageList={saveFromageList}/>}
         {fromageSubTab==='carte'&&<CarteFromageView userEmail={userEmail}/>}
