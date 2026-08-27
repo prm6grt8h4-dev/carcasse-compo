@@ -1860,10 +1860,10 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
 
     {showSettings&&(()=>{
       const dayCols=[{k:'mar',l:'Mar'},{k:'mer',l:'Mer'},{k:'jeu',l:'Jeu'},{k:'ven',l:'Ven'},{k:'sam',l:'Sam'}];
+      const patternCandidateIds=['giovanni','julien','michele','pauline','victoria','quentin','jorgen'];
       const patternRows=[
-        {key:'giovanni',label:'Giovanni'},{key:'julien',label:'Julien'},{key:'michele',label:'Michele'},
-        {key:'pauline',label:'Pauline'},{key:'victoria',label:'Victoria'},{key:'quentin',label:'Quentin'},
-        {key:'jorgen',label:'Jorgen'},{key:'_rang',label:'Cheffe / Chef de rang'},
+        ...patternCandidateIds.map(id=>team.find(m=>m.id===id)).filter(m=>m&&!(m.dateFin&&m.dateFin<startDateISO)).map(m=>({key:m.id,label:m.name})),
+        {key:'_rang',label:'Cheffe / Chef de rang'},
       ];
       function patternFor(key){
         if(fixedOverrides[key])return fixedOverrides[key];
@@ -4607,6 +4607,15 @@ function App(){
     let cancelled=false;
     async function loadCurrentWeekForCompo(){
       const todayMonday=getMondayISO(new Date());
+      // Si la semaine actuellement affichée/éditée dans Planning EST la semaine réelle en cours,
+      // on utilise directement ces données en direct plutôt que l'archive : l'archive n'est mise à
+      // jour qu'au clic sur "Sauvegarder", donc une correction (ex. date de fin) faite sans
+      // re-sauvegarder l'archive de cette semaine restait invisible pour la Compo jusqu'ici.
+      if(planning&&planning.startDateISO===todayMonday){
+        setCompoPlanning({...planning,startDateISO:todayMonday});
+        setCompoPlanningStatus('ok');
+        return;
+      }
       const fb=getFirebase();
       if(!fb){if(!cancelled){setCompoPlanning(null);setCompoPlanningStatus('error:Firebase non initialisé');}return;}
       try{
