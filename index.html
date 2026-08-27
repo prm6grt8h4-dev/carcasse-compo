@@ -4648,15 +4648,28 @@ function App(){
       if(!hasLoadedStateRef.current)return; // les données réelles (tables/terrasseMode/manual/compos) ne sont pas encore arrivées : ne rien sauvegarder pour ne pas les écraser avec les valeurs par défaut
       if(!compoPlanning||!compoPlanning.team)return;
       const today=dateKey(businessNow());
+      // La date de fin d'une personne est un fait indépendant de la semaine affichée dans Planning au
+      // moment où elle a été saisie — donc on la relit toujours depuis les données EN DIRECT
+      // (planning.team), pas seulement depuis l'archive de "la semaine réelle en cours" qui peut ne
+      // pas avoir cette info si cette semaine précise n'a pas été explicitement re-sauvegardée depuis.
+      const livePlanningTeamById={};
+      (planning&&planning.team||[]).forEach(m=>{livePlanningTeamById[m.id]=m;});
       const mappable={};
       compoPlanning.team.forEach(m=>{
-        if(m.dateDebut&&today<m.dateDebut)return; // pas encore commencé
-        if(m.dateFin&&today>m.dateFin)return; // date de fin dépassée : plus proposée en Compo (reste dans les archives déjà sauvegardées)
+        const live=livePlanningTeamById[m.id];
+        const dateDebut=(live&&live.dateDebut!==undefined)?live.dateDebut:m.dateDebut;
+        const dateFin=(live&&live.dateFin!==undefined)?live.dateFin:m.dateFin;
+        if(dateDebut&&today<dateDebut)return; // pas encore commencé
+        if(dateFin&&today>dateFin)return; // date de fin dépassée : plus proposée en Compo (reste dans les archives déjà sauvegardées)
         const compoRole=planningRoleToCompoRole(m.role);
         if(compoRole)mappable[toCompoId(m.id)]={id:toCompoId(m.id),name:m.name,role:compoRole};
       });
+      // Tous les ids du Planning (actifs ou non) : permet de retirer un membre Compo dont la date de
+      // fin est dépassée même s'il n'a jamais reçu le marqueur _fromPlanning (ex. ajouté avant que ce
+      // marquage existe) — sans ça, ces membres "orphelins" ne sont jamais nettoyés.
+      const allPlanningCompoIds=new Set(compoPlanning.team.map(m=>toCompoId(m.id)));
       const toAdd=Object.keys(mappable).filter(cid=>!team.some(t=>t.id===cid));
-      const toRemove=team.filter(t=>t._fromPlanning&&!mappable[t.id]).map(t=>t.id);
+      const toRemove=team.filter(t=>!mappable[t.id]&&(t._fromPlanning||allPlanningCompoIds.has(t.id))).map(t=>t.id);
       const toRetag=team.filter(t=>mappable[t.id]&&!t._fromPlanning).map(t=>t.id);
       if(toAdd.length===0&&toRemove.length===0&&toRetag.length===0)return;
       let newTeam=team.filter(t=>!toRemove.includes(t.id));
@@ -4667,7 +4680,7 @@ function App(){
     }catch(e){
       console.error('Sync Planning->Compo échouée, ignorée :',e);
     }
-  },[compoPlanning&&compoPlanning.team]);
+  },[compoPlanning&&compoPlanning.team,planning&&planning.team]);
 
   const save=useCallback((svcList,tbl,ter,man,curSvc,cps,tm)=>{
     try{localStorage.setItem(STORAGE_KEY,JSON.stringify({services:svcList,tables:tbl,terrasseMode:ter,manual:man,currentService:curSvc,compos:cps,team:tm}));}catch(e){}
