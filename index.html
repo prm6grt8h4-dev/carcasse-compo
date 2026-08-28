@@ -1672,6 +1672,9 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
 
     {manageOpen&&(<div style={{border:'0.5px solid #d4d2c8',borderRadius:10,background:'#fff',padding:14,marginBottom:14}}>
       <h3 style={{fontSize:13,margin:'0 0 10px 0'}}>Gérer l'équipe du planning</h3>
+      <div style={{background:'#fff7e6',border:'0.5px solid #f0d78c',borderRadius:8,padding:10,marginBottom:12,fontSize:11,fontFamily:'monospace',whiteSpace:'pre-wrap',color:'#5a4a1a'}}>
+        {'DIAGNOSTIC TEMPORAIRE — team (live, cette semaine : '+startDateISO+') :\n'+team.map(m=>m.name+' — id:'+m.id+' — dateDebut:'+(m.dateDebut||'—')+' — dateFin:'+(m.dateFin||'—')).join('\n')}
+      </div>
       {team.map((m,i)=>{
         const roleOptions=knownRoles.map(r=><option key={r} value={r}>{r}</option>);
         return(<div key={m.id} style={{display:'flex',gap:6,alignItems:'center',marginBottom:6,flexWrap:'wrap'}}>
