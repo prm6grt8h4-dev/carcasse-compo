@@ -4667,10 +4667,16 @@ function App(){
         const compoRole=planningRoleToCompoRole(m.role);
         if(compoRole)mappable[toCompoId(m.id)]={id:toCompoId(m.id),name:m.name,role:compoRole};
       });
-      // Tous les ids du Planning (actifs ou non) : permet de retirer un membre Compo dont la date de
-      // fin est dépassée même s'il n'a jamais reçu le marqueur _fromPlanning (ex. ajouté avant que ce
-      // marquage existe) — sans ça, ces membres "orphelins" ne sont jamais nettoyés.
-      const allPlanningCompoIds=new Set(compoPlanning.team.map(m=>toCompoId(m.id)));
+      // Tous les ids connus du Planning EN CE MOMENT (archive de la semaine réelle + semaine en direct
+      // actuellement affichée, actifs ou non) : permet de retirer un membre Compo déjà marqué
+      // _fromPlanning dès qu'il n'apparaît plus nulle part, sans dépendre d'une date de fin qui peut
+      // avoir disparu une fois la personne totalement purgée du Planning (ce qui est le comportement
+      // voulu là-bas). Les membres jamais marqués _fromPlanning (ajoutés avant ce système) ne peuvent
+      // pas être rattachés avec certitude et doivent être retirés à la main une fois, exceptionnellement.
+      const allPlanningCompoIds=new Set([
+        ...compoPlanning.team.map(m=>toCompoId(m.id)),
+        ...(planning&&planning.team||[]).map(m=>toCompoId(m.id)),
+      ]);
       const toAdd=Object.keys(mappable).filter(cid=>!team.some(t=>t.id===cid));
       const toRemove=team.filter(t=>!mappable[t.id]&&(t._fromPlanning||allPlanningCompoIds.has(t.id))).map(t=>t.id);
       const toRetag=team.filter(t=>mappable[t.id]&&!t._fromPlanning).map(t=>t.id);
