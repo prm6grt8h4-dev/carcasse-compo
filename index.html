@@ -1987,6 +1987,39 @@ function fmtDateFR(d){return d.toLocaleDateString('fr-FR',{day:'2-digit',month:'
 // conservées). Les extras ponctuels (Mardi Déjeuner, Dimanche Déj/Dîner) n'ont pas de case
 // "suivante" et ne sont jamais concernés par ce mécanisme.
 const CARCASSE_WEEK_PAIRS=[['mar-d','mar-d-next'],['mer-d','mer-d-next'],['jeu-d','jeu-d-next'],['ven-dj','ven-dj-next'],['ven-d','ven-d-next'],['sam-dj','sam-dj-next'],['sam-d','sam-d-next']];
+// Les 7 services "semaine suivante" doivent toujours exister par défaut (miroir exact des 7 services
+// de base), pour que l'anticipation à 15 jours soit prête sans jamais avoir à les rajouter à la main.
+const NEXT_WEEK_DEFAULT_SERVICES=[
+  {id:'mar-d-next',label:'Mardi Dîner',after:'sam-d',nextWeek:true},
+  {id:'mer-d-next',label:'Mercredi Dîner',after:'mar-d-next',nextWeek:true},
+  {id:'jeu-d-next',label:'Jeudi Dîner',after:'mer-d-next',nextWeek:true},
+  {id:'ven-dj-next',label:'Vendredi Déjeuner',after:'jeu-d-next',nextWeek:true},
+  {id:'ven-d-next',label:'Vendredi Dîner',after:'ven-dj-next',nextWeek:true},
+  {id:'sam-dj-next',label:'Samedi Déjeuner',after:'ven-d-next',nextWeek:true},
+  {id:'sam-d-next',label:'Samedi Dîner',after:'sam-dj-next',nextWeek:true},
+];
+async function ensureNextWeekServices(p){
+  const fb=getFirebase();if(!fb)return;
+  const services=p.services||[];
+  const missing=NEXT_WEEK_DEFAULT_SERVICES.filter(def=>!services.some(s=>s.id===def.id));
+  if(missing.length===0)return;
+  try{
+    const ds=p.defaultSettings||{};
+    const newServices=[...services];
+    const patch={};
+    missing.forEach(def=>{
+      newServices.push({id:def.id,label:def.label,extra:true,nextWeek:true});
+      patch['tables.'+def.id]=buildDefault([{id:def.id}],ds.defSalle,ds.defTerrasse)[def.id];
+      patch['terrasseMode.'+def.id]=false;
+      patch['manual.'+def.id]={};
+      patch['compos.'+def.id]=buildEmptyCompo();
+    });
+    patch['services']=newServices;
+    const ref=fb.doc(fb.db,'app','state');
+    await fb.updateDoc(ref,patch);
+  }catch(e){console.error('Auto-création des services "semaine suivante" échouée :',e);}
+}
+
 async function maybeRolloverCarcasseWeek(latestData){
   const fb=getFirebase();if(!fb)return;
   const nowMonday=getMondayISO(businessNow());
@@ -4566,6 +4599,7 @@ function App(){
       if(p.terrasseMode)setTerrasseMode(p.terrasseMode);
       if(p.manual)setManual(p.manual);
       if(p.compos)setCompos(p.compos);
+      ensureNextWeekServices(p); // garantit en permanence la présence des 7 services "semaine suivante", sans action manuelle
       if(p.gpData)setGpData(p.gpData);
       if(p.team){
         const merged=p.team.map(saved=>{const ini=INITIAL_TEAM.find(m=>m.id===saved.id);return{...saved,gender:saved.gender||(ini?.gender??'m')};});
