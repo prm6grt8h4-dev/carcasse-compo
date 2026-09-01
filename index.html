@@ -2000,21 +2000,25 @@ const NEXT_WEEK_DEFAULT_SERVICES=[
 ];
 async function ensureNextWeekServices(p){
   const fb=getFirebase();if(!fb)return;
+  if(p.nextWeekServicesInitialized)return; // ne s'exécute qu'une seule fois, jamais après — sinon une suppression volontaire serait recréée à chaque fois
   const services=p.services||[];
   const missing=NEXT_WEEK_DEFAULT_SERVICES.filter(def=>!services.some(s=>s.id===def.id));
-  if(missing.length===0)return;
   try{
     const ds=p.defaultSettings||{};
     const newServices=[...services];
     const patch={};
     missing.forEach(def=>{
-      newServices.push({id:def.id,label:def.label,extra:true,nextWeek:true});
+      const targetPos=ORDER.indexOf(def.id);
+      let insertAt=newServices.length;
+      for(let i=0;i<newServices.length;i++){if(ORDER.indexOf(newServices[i].id)>targetPos){insertAt=i;break;}}
+      newServices.splice(insertAt,0,{id:def.id,label:def.label,extra:true,nextWeek:true});
       patch['tables.'+def.id]=buildDefault([{id:def.id}],ds.defSalle,ds.defTerrasse)[def.id];
       patch['terrasseMode.'+def.id]=false;
       patch['manual.'+def.id]={};
       patch['compos.'+def.id]=buildEmptyCompo();
     });
     patch['services']=newServices;
+    patch['nextWeekServicesInitialized']=true; // marque l'opération comme faite, définitivement
     const ref=fb.doc(fb.db,'app','state');
     await fb.updateDoc(ref,patch);
   }catch(e){console.error('Auto-création des services "semaine suivante" échouée :',e);}
