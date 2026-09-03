@@ -4741,16 +4741,18 @@ function App(){
         const ref=fb.doc(fb.db,'app','state');
         // Écriture ciblée : uniquement le service en cours (tables/terrasse/manuel/compo),
         // pour qu'une modification sur un autre service (ou un autre appareil resté ouvert)
-        // n'écrase jamais toute la semaine. services/currentService/team restent en écriture globale
-        // (changent rarement en simultané).
+        // n'écrase jamais toute la semaine. services/team ne sont réécrits que si on a la certitude
+        // d'avoir déjà reçu les vraies données au moins une fois (hasLoadedStateRef) — sinon un
+        // premier clic juste après un rechargement pourrait écraser Firestore avec la valeur de
+        // secours locale (incomplète) au lieu de la vraie liste, faisant disparaître silencieusement
+        // des services pourtant bien enregistrés.
         const patch={
-          services:svcList,
-          team:tm,
           ['tables.'+curSvc]: tbl[curSvc],
           ['terrasseMode.'+curSvc]: ter[curSvc]!==undefined?ter[curSvc]:null,
           ['manual.'+curSvc]: man[curSvc]||null,
           ['compos.'+curSvc]: cps[curSvc]||null,
         };
+        if(hasLoadedStateRef.current){patch.services=svcList;patch.team=tm;}
         try{
           await fb.updateDoc(ref,patch);
         }catch(inner){
