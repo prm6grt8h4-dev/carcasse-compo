@@ -1180,11 +1180,14 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
     if(pattern==='same'){
       const ref=newSchedule[memberId][dayKey]; // valeur telle que saisie/choisie par l'utilisateur, jamais écrasée
       if(!ref)return false;
-      ['mar','mer','jeu','ven','sam'].filter(d=>d!==dayKey).forEach(d=>{newSchedule[memberId][d]={...ref};});
+      ['mar','mer','jeu','ven','sam'].filter(d=>d!==dayKey&&!(newSchedule[memberId][d]&&newSchedule[memberId][d].horaireManual)).forEach(d=>{newSchedule[memberId][d]={...ref};});
       return true;
     }
     const src=pattern||rangFixed;
-    Object.keys(src).filter(d=>d!==dayKey).forEach(d=>{
+    // Une case déjà modifiée à la main (horaireManual) n'est jamais réécrasée par la réapplication du
+    // motif fixe déclenchée par l'édition d'un AUTRE jour — l'exception tient pour cette semaine
+    // précise, et redevient normale automatiquement la semaine suivante (planning séparé par semaine).
+    Object.keys(src).filter(d=>d!==dayKey&&!(newSchedule[memberId][d]&&newSchedule[memberId][d].horaireManual)).forEach(d=>{
       const existing=newSchedule[memberId][d]||{};
       newSchedule[memberId][d]={horaire:src[d],tache:existing.tache||'',alerte:existing.alerte||'',off:false,tacheManual:existing.tacheManual||false};
     });
@@ -1193,7 +1196,7 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
 
   function saveCell(memberId,dayKey,horaire,tache,alerte){
     if(readOnly)return;
-    const newSchedule={...schedule,[memberId]:{...(schedule[memberId]||{}),[dayKey]:{horaire:horaire||'',tache:tache||'',alerte:alerte||'',off:false,tacheManual:!!tache}}};
+    const newSchedule={...schedule,[memberId]:{...(schedule[memberId]||{}),[dayKey]:{horaire:horaire||'',tache:tache||'',alerte:alerte||'',off:false,tacheManual:!!tache,horaireManual:!!horaire}}};
     const member=team.find(m=>m.id===memberId);
     let nextPending=null;
     if(applyFixedPatternIfAny(memberId,dayKey,newSchedule)){
