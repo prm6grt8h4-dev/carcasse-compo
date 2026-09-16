@@ -608,7 +608,7 @@ function RangItem({r,sel,isFirst,isLast,onSelect,onMoveUp,onMoveDown,onDelete,te
   </div>);
 }
 
-function CompoView({services,currentService,setCurrentService,tables,compos,setCompos,team,setTeam,save,allSvcState,userEmail,planning}){
+function CompoView({services,currentService,setCurrentService,tables,compos,setCompos,team,setTeam,save,saveServicesAndTeam,allSvcState,userEmail,planning}){
   const svcData=tables[currentService]||{};const compo=compos[currentService]||buildEmptyCompo();const svcLabel=services.find(s=>s.id===currentService)?.label??'';
   let autoOutIds=[];
   try{ autoOutIds=team.filter(m=>{const cell=getPlnCellForCompoMember(planning,m.id,currentService);return cell&&cell.off;}).map(m=>m.id); }catch(e){console.error('autoOutIds échoué:',e);}
@@ -779,9 +779,9 @@ function CompoView({services,currentService,setCurrentService,tables,compos,setC
 
 function TeamManager({team,setTeam,onClose,save,allSvcState,compos,currentService}){
   const [newName,setNewName]=useState('');const [newRole,setNewRole]=useState(ROLE_ORDER[0]);const [newGender,setNewGender]=useState('m');const [editing,setEditing]=useState(null);
-  function addMember(){if(!newName.trim())return;const id='member_'+Date.now();const newTeam=[...team,{id,name:newName.trim(),role:newRole,gender:newGender}];setTeam(newTeam);save(allSvcState.services,allSvcState.tables,allSvcState.terrasseMode,allSvcState.manual,currentService,compos,newTeam);setNewName('');setNewRole(ROLE_ORDER[0]);setNewGender('m');}
-  function removeMember(id){const newTeam=team.filter(m=>m.id!==id);setTeam(newTeam);save(allSvcState.services,allSvcState.tables,allSvcState.terrasseMode,allSvcState.manual,currentService,compos,newTeam);}
-  function saveEdit(){if(!editing)return;const newTeam=team.map(m=>m.id===editing.id?{...m,name:editing.name,role:editing.role,gender:editing.gender||'m'}:m);setTeam(newTeam);save(allSvcState.services,allSvcState.tables,allSvcState.terrasseMode,allSvcState.manual,currentService,compos,newTeam);setEditing(null);}
+  function addMember(){if(!newName.trim())return;const id='member_'+Date.now();const newTeam=[...team,{id,name:newName.trim(),role:newRole,gender:newGender}];setTeam(newTeam);save(allSvcState.services,allSvcState.tables,allSvcState.terrasseMode,allSvcState.manual,currentService,compos,newTeam);saveServicesAndTeam(allSvcState.services,newTeam);setNewName('');setNewRole(ROLE_ORDER[0]);setNewGender('m');}
+  function removeMember(id){const newTeam=team.filter(m=>m.id!==id);setTeam(newTeam);save(allSvcState.services,allSvcState.tables,allSvcState.terrasseMode,allSvcState.manual,currentService,compos,newTeam);saveServicesAndTeam(allSvcState.services,newTeam);}
+  function saveEdit(){if(!editing)return;const newTeam=team.map(m=>m.id===editing.id?{...m,name:editing.name,role:editing.role,gender:editing.gender||'m'}:m);setTeam(newTeam);save(allSvcState.services,allSvcState.tables,allSvcState.terrasseMode,allSvcState.manual,currentService,compos,newTeam);saveServicesAndTeam(allSvcState.services,newTeam);setEditing(null);}
   const sorted=sortMembers(team);const genders=[{v:'m',label:'Garçon',bg:'#dbeafe',color:'#1e40af'},{v:'f',label:'Fille',bg:'#fce7f3',color:'#9d174d'}];
   return(<div onClick={e=>{if(e.target===e.currentTarget)onClose();}} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200}}><div style={{background:'#f5f4f0',borderRadius:12,padding:20,width:380,maxHeight:'85vh',overflowY:'auto',border:'0.5px solid #ddd'}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}><span style={{fontWeight:700,fontSize:15}}>Équipe</span><button onClick={onClose} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#888'}}>×</button></div>
@@ -2003,7 +2003,7 @@ const NEXT_WEEK_DEFAULT_SERVICES=[
 ];
 async function ensureNextWeekServices(p){
   const fb=getFirebase();if(!fb)return;
-  if(p.nextWeekServicesInitialized)return; // ne s'exécute qu'une seule fois, jamais après — sinon une suppression volontaire serait recréée à chaque fois
+  if(p.nextWeekServicesInitializedV2)return; // ne s'exécute qu'une seule fois, jamais après — sinon une suppression volontaire serait recréée à chaque fois
   const services=p.services||[];
   const missing=NEXT_WEEK_DEFAULT_SERVICES.filter(def=>!services.some(s=>s.id===def.id));
   try{
@@ -2021,7 +2021,7 @@ async function ensureNextWeekServices(p){
       patch['compos.'+def.id]=buildEmptyCompo();
     });
     patch['services']=newServices;
-    patch['nextWeekServicesInitialized']=true; // marque l'opération comme faite, définitivement
+    patch['nextWeekServicesInitializedV2']=true; // marque l'opération comme faite, définitivement
     const ref=fb.doc(fb.db,'app','state');
     await fb.updateDoc(ref,patch);
   }catch(e){console.error('Auto-création des services "semaine suivante" échouée :',e);}
@@ -4727,6 +4727,7 @@ function App(){
       toAdd.forEach(cid=>{newTeam=[...newTeam,{id:cid,name:mappable[cid].name,role:mappable[cid].role,gender:'m',_fromPlanning:true}];});
       setTeam(newTeam);
       save(services,tables,terrasseMode,manual,currentService,compos,newTeam);
+      saveServicesAndTeam(services,newTeam);
     }catch(e){
       console.error('Sync Planning->Compo échouée, ignorée :',e);
     }
@@ -4742,20 +4743,17 @@ function App(){
       let detailSet=false;
       try{
         const ref=fb.doc(fb.db,'app','state');
-        // Écriture ciblée : uniquement le service en cours (tables/terrasse/manuel/compo),
-        // pour qu'une modification sur un autre service (ou un autre appareil resté ouvert)
-        // n'écrase jamais toute la semaine. services/team ne sont réécrits que si on a la certitude
-        // d'avoir déjà reçu les vraies données au moins une fois (hasLoadedStateRef) — sinon un
-        // premier clic juste après un rechargement pourrait écraser Firestore avec la valeur de
-        // secours locale (incomplète) au lieu de la vraie liste, faisant disparaître silencieusement
-        // des services pourtant bien enregistrés.
+        // Écriture ciblée : services/team ne sont PLUS JAMAIS écrits par cette fonction (appelée à
+        // chaque modification de table/terrasse/etc.) — seules les actions dédiées "+ Service" et
+        // "Supprimer" les modifient désormais, avec une écriture séparée et toujours fraîche. Ça
+        // élimine le risque qu'un appareil resté ouvert avec une version en retard de la liste
+        // écrase silencieusement les services ajoutés entre-temps ailleurs.
         const patch={
           ['tables.'+curSvc]: tbl[curSvc],
           ['terrasseMode.'+curSvc]: ter[curSvc]!==undefined?ter[curSvc]:null,
           ['manual.'+curSvc]: man[curSvc]||null,
           ['compos.'+curSvc]: cps[curSvc]||null,
         };
-        if(hasLoadedStateRef.current){patch.services=svcList;patch.team=tm;}
         try{
           await fb.updateDoc(ref,patch);
         }catch(inner){
@@ -4775,6 +4773,22 @@ function App(){
       }catch(e){console.error('Save error',e);if(!detailSet)setSyncErrorDetail((e&&(e.code||e.message))||'Erreur inconnue (sauvegarde)');setSyncStatus('error');}
     },800);
   },[authState]);
+
+  // Écriture dédiée et toujours fraîche pour services/team — seul point d'entrée qui les modifie
+  // désormais (appelé uniquement par + Service / Supprimer un service), avec la valeur tout juste
+  // calculée, jamais une copie en mémoire potentiellement en retard.
+  async function saveServicesAndTeam(newSvc,newTeam){
+    const fb=getFirebase();if(!fb||authState!=='logged-in')return;
+    try{
+      const ref=fb.doc(fb.db,'app','state');
+      await fb.updateDoc(ref,{services:newSvc,team:newTeam});
+    }catch(e){
+      try{
+        const ref=fb.doc(fb.db,'app','state');
+        await fb.setDoc(ref,{services:newSvc,team:newTeam},{merge:true});
+      }catch(e2){console.error('Sauvegarde de la liste des services échouée :',e2);}
+    }
+  }
 
   async function handleLogout(){
     const fb=getFirebase();
@@ -4920,9 +4934,9 @@ function App(){
     const ov3=checkPlateauOverflow(newT[currentService]);if(ov3.length>0)setPlateauAlert(ov3);
   }
 
-  function insertService(id,label,afterId,nextWeek){if(services.find(s=>s.id===id))return;const targetPos=ORDER.indexOf(id);let insertAt=services.length;for(let i=0;i<services.length;i++){if(ORDER.indexOf(services[i].id)>targetPos){insertAt=i;break;}}const newSvc=[...services];newSvc.splice(insertAt,0,{id,label,extra:true,...(nextWeek?{nextWeek:true}:{})});const newT={...tables,[id]:dc(tables[afterId]||buildDefault([{id}],defaultSettings.defSalle,defaultSettings.defTerrasse)[id])};const newTer={...terrasseMode,[id]:terrasseMode[afterId]||false};const newMan={...manual,[id]:{}};const newCps={...compos,[id]:buildEmptyCompo()};setServices(newSvc);setTables(newT);setTerrasseMode(newTer);setManual(newMan);setCompos(newCps);setCurrentService(id);setShowSvc(false);save(newSvc,newT,newTer,newMan,id,newCps,team);}
+  function insertService(id,label,afterId,nextWeek){if(services.find(s=>s.id===id))return;const targetPos=ORDER.indexOf(id);let insertAt=services.length;for(let i=0;i<services.length;i++){if(ORDER.indexOf(services[i].id)>targetPos){insertAt=i;break;}}const newSvc=[...services];newSvc.splice(insertAt,0,{id,label,extra:true,...(nextWeek?{nextWeek:true}:{})});const newT={...tables,[id]:dc(tables[afterId]||buildDefault([{id}],defaultSettings.defSalle,defaultSettings.defTerrasse)[id])};const newTer={...terrasseMode,[id]:terrasseMode[afterId]||false};const newMan={...manual,[id]:{}};const newCps={...compos,[id]:buildEmptyCompo()};setServices(newSvc);setTables(newT);setTerrasseMode(newTer);setManual(newMan);setCompos(newCps);setCurrentService(id);setShowSvc(false);save(newSvc,newT,newTer,newMan,id,newCps,team);saveServicesAndTeam(newSvc,team);}
 
-  function removeService(id){const idx=services.findIndex(s=>s.id===id);if(idx<0)return;const newSvc=services.filter(s=>s.id!==id);const newT={...tables};delete newT[id];const newTer={...terrasseMode};delete newTer[id];const newMan={...manual};delete newMan[id];const newCps={...compos};delete newCps[id];const newCur=newSvc[Math.max(0,idx-1)]?.id??newSvc[0]?.id??'mar-d';setServices(newSvc);setTables(newT);setTerrasseMode(newTer);setManual(newMan);setCompos(newCps);setCurrentService(newCur);setShowSvc(false);save(newSvc,newT,newTer,newMan,newCur,newCps,team);}
+  function removeService(id){const idx=services.findIndex(s=>s.id===id);if(idx<0)return;const newSvc=services.filter(s=>s.id!==id);const newT={...tables};delete newT[id];const newTer={...terrasseMode};delete newTer[id];const newMan={...manual};delete newMan[id];const newCps={...compos};delete newCps[id];const newCur=newSvc[Math.max(0,idx-1)]?.id??newSvc[0]?.id??'mar-d';setServices(newSvc);setTables(newT);setTerrasseMode(newTer);setManual(newMan);setCompos(newCps);setCurrentService(newCur);setShowSvc(false);save(newSvc,newT,newTer,newMan,newCur,newCps,team);saveServicesAndTeam(newSvc,team);}
 
   function openModal(tn,zone){const d=svcData[tn]||mkoff();setModal({tn,zone,covers:d.covers,plateau:d.plateau,isConsole:!!d.isConsole});}
   function applyModal(){if(!modal)return;const{tn,covers,plateau,isConsole}=modal;const pl=covers>0?(plateau||(tn==='AQUA'?120:defaultPlateau(covers))):null;const newT=dc(tables);newT[currentService][tn]={covers,plateau:pl,isConsole:isConsole&&covers>0};if(tn==='3B'){const t4=newT[currentService]['4'];if(t4&&t4.covers>0&&!t4.isConsole)t4.plateau=suggestPlateau('4',t4.covers,newT[currentService]);}setTables(newT);setModal(null);save(services,newT,terrasseMode,manual,currentService,compos,team);const ov=checkPlateauOverflow(newT[currentService]);if(ov.length>0)setPlateauAlert(ov);}
@@ -5096,7 +5110,7 @@ function App(){
         {!roleLinge&&<SalleEmpireBlock tables={tables} services={services} currentService={currentService}/>}
       </div>)}
 
-      {tab==='compo'&&!roleLinge&&(<CompoView services={services} currentService={currentService} setCurrentService={setCurrentService} tables={tables} compos={compos} setCompos={setCompos} team={team} setTeam={setTeam} save={save} allSvcState={allSvcState} userEmail={userEmail} planning={compoPlanning}/>)}
+      {tab==='compo'&&!roleLinge&&(<CompoView services={services} currentService={currentService} setCurrentService={setCurrentService} tables={tables} compos={compos} setCompos={setCompos} team={team} setTeam={setTeam} save={save} saveServicesAndTeam={saveServicesAndTeam} allSvcState={allSvcState} userEmail={userEmail} planning={compoPlanning}/>)}
 
       {tab==='planning'&&(<PlanningView planning={roleLinge?compoPlanning:planning} setPlanning={setPlanning} savePlanning={savePlanning} readOnly={roleLinge} canManageSettings={isSuperAdmin(userEmail)} canArchive={!roleLinge} roleLingeStatus={roleLinge?compoPlanningStatus:null}/>)}
 
