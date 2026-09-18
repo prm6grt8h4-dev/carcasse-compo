@@ -1700,6 +1700,10 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
           <label style={{fontSize:10,color:'#888',display:'flex',alignItems:'center',gap:4}}>Début
             <input type="date" value={m.dateDebut||''} onChange={e=>updateMember(m.id,'dateDebut',e.target.value)} style={{fontSize:11,padding:'4px 6px',border:'0.5px solid #d4d2c8',borderRadius:6}}/>
           </label>
+          <div style={{display:'flex',gap:4}}>
+            <button onClick={()=>updateMember(m.id,'gender','m')} style={{padding:'4px 9px',fontSize:11,border:'0.5px solid '+((m.gender||'m')==='m'?'#378ADD':'#ccc'),borderRadius:6,cursor:'pointer',background:(m.gender||'m')==='m'?'#dbeafe':'#fff',color:(m.gender||'m')==='m'?'#1e40af':'#888',fontWeight:(m.gender||'m')==='m'?600:400}}>Garçon</button>
+            <button onClick={()=>updateMember(m.id,'gender','f')} style={{padding:'4px 9px',fontSize:11,border:'0.5px solid '+(m.gender==='f'?'#be185d':'#ccc'),borderRadius:6,cursor:'pointer',background:m.gender==='f'?'#fce7f3':'#fff',color:m.gender==='f'?'#be185d':'#888',fontWeight:m.gender==='f'?600:400}}>Fille</button>
+          </div>
           {m.dateFin&&<span style={{fontSize:10,color:'#991b1b',background:'#fee2e2',borderRadius:6,padding:'3px 7px'}}>Fin : {fmtDateFR(new Date(m.dateFin+'T12:00:00'))}</span>}
           {pendingRemoveId===m.id?(
             <div style={{display:'flex',gap:4,alignItems:'center',background:'#fee2e2',borderRadius:6,padding:'4px 6px'}}>
@@ -4706,7 +4710,7 @@ function App(){
         if(dateDebut&&today<dateDebut)return; // pas encore commencé
         if(dateFin&&today>dateFin)return; // date de fin dépassée : plus proposée en Compo (reste dans les archives déjà sauvegardées)
         const compoRole=planningRoleToCompoRole(m.role);
-        if(compoRole)mappable[toCompoId(m.id)]={id:toCompoId(m.id),name:m.name,role:compoRole};
+        if(compoRole)mappable[toCompoId(m.id)]={id:toCompoId(m.id),name:m.name,role:compoRole,gender:m.gender||'m'};
       });
       // Tous les ids connus du Planning EN CE MOMENT (archive de la semaine réelle + semaine en direct
       // actuellement affichée, actifs ou non) : permet de retirer un membre Compo déjà marqué
@@ -4721,10 +4725,14 @@ function App(){
       const toAdd=Object.keys(mappable).filter(cid=>!team.some(t=>t.id===cid));
       const toRemove=team.filter(t=>!mappable[t.id]&&(t._fromPlanning||allPlanningCompoIds.has(t.id))).map(t=>t.id);
       const toRetag=team.filter(t=>mappable[t.id]&&!t._fromPlanning).map(t=>t.id);
-      if(toAdd.length===0&&toRemove.length===0&&toRetag.length===0)return;
+      // Un membre déjà rattaché au Planning dont le genre a changé là-bas (via "Gérer l'équipe du
+      // planning") doit se mettre à jour ici aussi, sans qu'il faille le corriger à la main en Compo.
+      const toUpdateGender=team.filter(t=>t._fromPlanning&&mappable[t.id]&&mappable[t.id].gender!==(t.gender||'m')).map(t=>t.id);
+      if(toAdd.length===0&&toRemove.length===0&&toRetag.length===0&&toUpdateGender.length===0)return;
       let newTeam=team.filter(t=>!toRemove.includes(t.id));
       newTeam=newTeam.map(t=>toRetag.includes(t.id)?{...t,_fromPlanning:true}:t);
-      toAdd.forEach(cid=>{newTeam=[...newTeam,{id:cid,name:mappable[cid].name,role:mappable[cid].role,gender:'m',_fromPlanning:true}];});
+      newTeam=newTeam.map(t=>toUpdateGender.includes(t.id)?{...t,gender:mappable[t.id].gender}:t);
+      toAdd.forEach(cid=>{newTeam=[...newTeam,{id:cid,name:mappable[cid].name,role:mappable[cid].role,gender:mappable[cid].gender||'m',_fromPlanning:true}];});
       setTeam(newTeam);
       save(services,tables,terrasseMode,manual,currentService,compos,newTeam);
       saveServicesAndTeam(services,newTeam);
