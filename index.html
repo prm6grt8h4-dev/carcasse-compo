@@ -1063,6 +1063,7 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
   const [pendingRemoveDate,setPendingRemoveDate]=useState('');
   const tableRef=useRef(null);
   const wrapperRef=useRef(null);
+  const pinchZoomRef=useRef({active:false,startDist:0,startZoom:1});
   const rowRefs=useRef([]);
   const infosRowRef=useRef(null);
   const [dividerPositions,setDividerPositions]=useState([]);
@@ -1611,6 +1612,26 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
     loadPlanningForDate(plnISO(start));
   }
 
+  function onWrapperTouchStart(e){
+    if(e.touches.length===2){
+      e.preventDefault();
+      const dx=e.touches[1].clientX-e.touches[0].clientX,dy=e.touches[1].clientY-e.touches[0].clientY;
+      pinchZoomRef.current={active:true,startDist:Math.sqrt(dx*dx+dy*dy),startZoom:zoomLevel};
+    }
+  }
+  function onWrapperTouchMove(e){
+    if(pinchZoomRef.current.active&&e.touches.length===2){
+      e.preventDefault();
+      const dx=e.touches[1].clientX-e.touches[0].clientX,dy=e.touches[1].clientY-e.touches[0].clientY;
+      const dist=Math.sqrt(dx*dx+dy*dy);
+      const next=pinchZoomRef.current.startZoom*(dist/pinchZoomRef.current.startDist);
+      setZoomLevel(Math.max(0.5,Math.min(1.2,Math.round(next*100)/100)));
+    }
+  }
+  function onWrapperTouchEnd(e){
+    if(e.touches.length<2)pinchZoomRef.current.active=false;
+  }
+
   return(<div style={{fontFamily:'system-ui,sans-serif'}}>
     {previewEntry&&(<div style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:'#fef3c7',border:'0.5px solid #d97706',borderRadius:8,padding:'8px 12px',marginBottom:10}}>
       <span style={{fontSize:12,fontWeight:600,color:'#92400e'}}>Aperçu archive : {previewEntry.label} (lecture seule)</span>
@@ -1695,7 +1716,7 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
       <button onClick={addMember} style={{marginTop:8,padding:'8px 16px',fontSize:12,fontWeight:600,border:'none',borderRadius:8,cursor:'pointer',background:'#1a1a1a',color:'#fff'}}>+ Ajouter quelqu'un</button>
     </div>)}
 
-    <div ref={wrapperRef} style={{overflowX:'auto',border:'0.5px solid #d4d2c8',borderRadius:10,background:'#fff',position:'relative'}}>
+    <div ref={wrapperRef} onTouchStart={onWrapperTouchStart} onTouchMove={onWrapperTouchMove} onTouchEnd={onWrapperTouchEnd} style={{overflowX:'auto',border:'0.5px solid #d4d2c8',borderRadius:10,background:'#fff',position:'relative',touchAction:'pan-x pan-y'}}>
       <table ref={tableRef} style={{borderCollapse:'collapse',width:'100%'}}>
         <thead>
           <tr>
@@ -4724,37 +4745,27 @@ function App(){
     setSyncStatus('saving');
     if(saveTimerRef.current[curSvc])clearTimeout(saveTimerRef.current[curSvc]);
     saveTimerRef.current[curSvc]=setTimeout(async()=>{
-      let detailSet=false;
       try{
         const ref=fb.doc(fb.db,'app','state');
-        // Écriture ciblée : services/team ne sont PLUS JAMAIS écrits par cette fonction (appelée à
+        // Écriture ciblée uniquement : services/team ne sont JAMAIS écrits par cette fonction (appelée à
         // chaque modification de table/terrasse/etc.) — seules les actions dédiées "+ Service" et
-        // "Supprimer" les modifient désormais, avec une écriture séparée et toujours fraîche. Ça
-        // élimine le risque qu'un appareil resté ouvert avec une version en retard de la liste
-        // écrase silencieusement les services ajoutés entre-temps ailleurs.
+        // "Supprimer" les modifient, avec une écriture séparée et toujours fraîche. Pas de repli sur un
+        // set complet en cas d'échec : un tel repli enverrait une copie locale potentiellement en retard
+        // (services, team, ou données d'un autre service) et écraserait silencieusement ce qui a été
+        // ajouté ailleurs entre-temps. En cas d'échec, on affiche l'erreur plutôt que d'écrire une
+        // valeur périmée : l'utilisateur peut alors réessayer une fois la connexion rétablie.
         const patch={
           ['tables.'+curSvc]: tbl[curSvc],
           ['terrasseMode.'+curSvc]: ter[curSvc]!==undefined?ter[curSvc]:null,
           ['manual.'+curSvc]: man[curSvc]||null,
           ['compos.'+curSvc]: cps[curSvc]||null,
         };
-        try{
-          await fb.updateDoc(ref,patch);
-        }catch(inner){
-          // Le document n'existe peut-être pas encore (tout premier lancement) : repli sur un set complet.
-          try{
-            await fb.setDoc(ref,{services:svcList,tables:tbl,terrasseMode:ter,manual:man,compos:cps,team:tm},{merge:true});
-          }catch(fallbackErr){
-            detailSet=true;
-            setSyncErrorDetail('updateDoc: '+((inner&&(inner.code||inner.message))||'?')+' / setDoc: '+((fallbackErr&&(fallbackErr.code||fallbackErr.message))||'?'));
-            throw fallbackErr;
-          }
-        }
+        await fb.updateDoc(ref,patch);
         delete saveTimerRef.current[curSvc];
         setSyncErrorDetail('');
         setSyncStatus('saved');
         setTimeout(()=>setSyncStatus('idle'),2000);
-      }catch(e){console.error('Save error',e);if(!detailSet)setSyncErrorDetail((e&&(e.code||e.message))||'Erreur inconnue (sauvegarde)');setSyncStatus('error');}
+      }catch(e){console.error('Save error',e);setSyncErrorDetail((e&&(e.code||e.message))||'Erreur inconnue (sauvegarde)');setSyncStatus('error');}
     },800);
   },[authState]);
 
