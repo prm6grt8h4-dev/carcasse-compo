@@ -1059,6 +1059,7 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
   const [editDraft,setEditDraft]=useState({horaire:'',tache:'',alerte:''});
   const [manageOpen,setManageOpen]=useState(false);
   const [teamDraft,setTeamDraft]=useState(null); // brouillon local de l'équipe pendant l'édition (rien n'est envoyé tant que "Sauvegarder l'équipe" n'est pas cliqué)
+  const [dbgClicks,setDbgClicks]=useState(0); // TEMPORAIRE - compteur de diagnostic, à retirer une fois le bug trouvé
   useEffect(()=>{
     if(manageOpen)setTeamDraft(dc(team));
     else setTeamDraft(null);
@@ -1385,6 +1386,7 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
   // envoyé à Firestore avant le clic explicite sur "Sauvegarder l'équipe". Ça évite qu'une rafale de
   // clics rapides (ex. régler le genre de tout le monde) déclenche autant de transactions concurrentes.
   function updateMember(id,field,value){
+    setDbgClicks(c=>c+1);
     setTeamDraft(dTeam=>{
       let newTeam=(dTeam||team).map(m=>m.id===id?{...m,[field]:value}:m);
       if(field==='group')newTeam=moveIntoGroupBlock(newTeam,id);
@@ -1412,6 +1414,7 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
   }
   const addMemberBtnRef=useRef(null);
   function addMember(){
+    setDbgClicks(c=>c+1);
     const id='membre_'+Date.now();
     setTeamDraft(dTeam=>[...(dTeam||team),{id,name:'Nouveau',role:'',group:'_unset',dateDebut:dateKey(businessNow())}]);
     // La nouvelle ligne apparaît juste au-dessus de ce bouton — sans ça, sur une équipe de 18-19
@@ -1754,6 +1757,9 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
 
     {manageOpen&&(<div style={{border:'0.5px solid #d4d2c8',borderRadius:10,background:'#fff',padding:14,marginBottom:14}}>
       <h3 style={{fontSize:13,margin:'0 0 10px 0'}}>Gérer l'équipe du planning</h3>
+      <div style={{fontSize:14,fontWeight:800,color:'#fff',background:'#c0392b',borderRadius:6,padding:'8px 10px',marginBottom:6,textAlign:'center'}}>
+        DIAGNOSTIC — clics enregistrés : {dbgClicks}
+      </div>
       <div style={{fontSize:12,fontWeight:600,color:JSON.stringify(draftTeam)!==JSON.stringify(team)?'#b45309':'#888',background:JSON.stringify(draftTeam)!==JSON.stringify(team)?'#fef3c7':'#f5f4f0',border:'0.5px solid '+(JSON.stringify(draftTeam)!==JSON.stringify(team)?'#d97706':'#e5e5e0'),borderRadius:6,padding:'6px 10px',marginBottom:10}}>
         {draftTeam.length} personne{draftTeam.length>1?'s':''} dans le brouillon{JSON.stringify(draftTeam)!==JSON.stringify(team)?' — modifications non sauvegardées ⚠️':' (identique à la dernière sauvegarde)'}
       </div>
