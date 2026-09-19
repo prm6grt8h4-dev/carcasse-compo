@@ -1134,6 +1134,34 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
     savePlanning(next); // n'envoie que les champs réellement modifiés, en écriture ciblée dot-notation
   }
 
+  // Modifie planning.team via une transaction Firestore : relit la version la plus fraîche du
+  // serveur au moment de l'écriture (pas la copie en mémoire de CET appareil, qui peut dater de
+  // plusieurs heures si l'onglet est resté ouvert en arrière-plan), y applique le même changement,
+  // puis écrit le résultat de façon atomique. Élimine le risque qu'un appareil resté ouvert toute la
+  // journée écrase silencieusement les modifications faites ailleurs entre-temps (ex. les genres).
+  async function updateTeamTransactional(updater){
+    const fb=getFirebase();
+    if(!fb){
+      commit({team:updater(team)}); // hors ligne : pas de transaction possible, repli sur le comportement local habituel
+      return;
+    }
+    try{
+      const ref=fb.doc(fb.db,'app','state');
+      let resultTeam=null;
+      await fb.runTransaction(fb.db,async(tx)=>{
+        const snap=await tx.get(ref);
+        const remoteData=snap.exists()?snap.data():{};
+        const freshTeam=(remoteData.planning&&remoteData.planning.team)||team;
+        resultTeam=updater(freshTeam);
+        tx.update(ref,{'planning.team':resultTeam});
+      });
+      if(resultTeam)setPlanning(p=>({...(p||DEFAULT_PLANNING),team:resultTeam}));
+    }catch(e){
+      console.error('Mise à jour transactionnelle de l\'équipe échouée :',e);
+      commit({team:updater(team)}); // au moins tenter la sauvegarde habituelle plutôt que de perdre le changement
+    }
+  }
+
   function getCell(memberId,dayKey){return (schedule[memberId]&&schedule[memberId][dayKey])||null;}
 
   // Cascade des tâches (Vaisseliers 1/2, Salle, Salle - Fromage) entre les Cheffes/Chefs de
@@ -1347,15 +1375,26 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
     return rest;
   }
   function updateMember(id,field,value){
-    let newTeam=team.map(m=>m.id===id?{...m,[field]:value}:m);
-    if(field==='group')newTeam=moveIntoGroupBlock(newTeam,id);
-    commit({team:newTeam});
+    updateTeamTransactional(freshTeam=>{
+      let newTeam=freshTeam.map(m=>m.id===id?{...m,[field]:value}:m);
+      if(field==='group')newTeam=moveIntoGroupBlock(newTeam,id);
+      return newTeam;
+    });
   }
   function moveMember(i,dir){
     const j=i+dir;if(j<0||j>=team.length)return;
-    const newTeam=[...team];
-    [newTeam[i],newTeam[j]]=[newTeam[j],newTeam[i]];
-    commit({team:newTeam});
+    const a=team[i],b=team[j];
+    if(!a||!b)return;
+    // Échange basé sur l'identité des deux membres (pas leur position), pour rester correct même si
+    // la liste côté serveur a changé entre-temps (ajout/suppression par un autre appareil).
+    updateTeamTransactional(freshTeam=>{
+      const ia=freshTeam.findIndex(m=>m.id===a.id);
+      const ib=freshTeam.findIndex(m=>m.id===b.id);
+      if(ia<0||ib<0)return freshTeam;
+      const newTeam=[...freshTeam];
+      [newTeam[ia],newTeam[ib]]=[newTeam[ib],newTeam[ia]];
+      return newTeam;
+    });
   }
   function removeMember(id){
     setPendingRemoveId(id);
@@ -1363,13 +1402,13 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
   }
   function confirmRemoveMember(){
     if(!pendingRemoveId||!pendingRemoveDate)return;
-    const newTeam=team.map(m=>m.id===pendingRemoveId?{...m,dateFin:pendingRemoveDate}:m);
-    commit({team:newTeam});
+    const id=pendingRemoveId,dateFin=pendingRemoveDate;
+    updateTeamTransactional(freshTeam=>freshTeam.map(m=>m.id===id?{...m,dateFin}:m));
     setPendingRemoveId(null);setPendingRemoveDate('');
   }
   function addMember(){
     const id='membre_'+Date.now();
-    commit({team:[...team,{id,name:'Nouveau',role:'',group:'_unset',dateDebut:dateKey(businessNow())}]});
+    updateTeamTransactional(freshTeam=>[...freshTeam,{id,name:'Nouveau',role:'',group:'_unset',dateDebut:dateKey(businessNow())}]);
   }
 
   async function exportAsImage(){
@@ -1896,7 +1935,7 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
       function patternFor(key){
         if(fixedOverrides[key])return fixedOverrides[key];
         if(key==='_rang')return PLN_RANG_FIXED_PATTERN;
-        return PLN_FIXED_WEEK_PATTERNS[key];
+        return PLN_FIXED_WEEK_PATTERNS[key]||{};
       }
       function updatePatternDay(key,dayKey,value){
         const current={...patternFor(key)};
@@ -4619,6 +4658,7 @@ function App(){
   const [menuFicheUrl,setMenuFicheUrl]=useState('');
   const saveTimerRef=useRef({});
   const planningSaveTimerRef=useRef(null);
+  const planningPendingPatchRef=useRef({});
   const unsubscribeRef=useRef(null);
   const hasLoadedStateRef=useRef(false); // true seulement après la 1ère réception des vraies données Firestore (évite qu'un effet sauvegarde des valeurs par défaut avant leur arrivée)
   const carcasseRolloverMondayRef=useRef(undefined); // dernier repère de bascule Carcasse connu, mis à jour par le listener Firestore
@@ -4921,20 +4961,27 @@ function App(){
 
   function savePlanning(next){
     const fb=getFirebase();if(!fb)return;
+    // Accumule les champs modifiés (fusion) au lieu de remplacer le payload en attente à chaque appel :
+    // avec un seul minuteur partagé pour tout le Planning, une modif (ex. équipe/genre) suivie d'une
+    // autre modif différente (ex. horaire) dans les 800ms écrasait la première sans jamais l'envoyer à
+    // Firestore — perte silencieuse. Ici chaque champ reste en attente jusqu'à l'écriture effective.
+    planningPendingPatchRef.current={...planningPendingPatchRef.current,...next};
     if(planningSaveTimerRef.current)clearTimeout(planningSaveTimerRef.current);
     planningSaveTimerRef.current=setTimeout(async()=>{
+      const toSave=planningPendingPatchRef.current;
+      planningPendingPatchRef.current={};
+      planningSaveTimerRef.current=null;
       try{
         const ref=fb.doc(fb.db,'app','state');
         const patch={};
-        Object.keys(next).forEach(k=>{patch['planning.'+k]=next[k];});
-        try{
-          await fb.updateDoc(ref,patch);
-        }catch(inner){
-          // Le champ 'planning' n'existe peut-être pas encore : repli sur un set fusionné.
-          await fb.setDoc(ref,{planning:next},{merge:true});
-        }
-      }catch(e){console.error(e);}
-      planningSaveTimerRef.current=null;
+        Object.keys(toSave).forEach(k=>{patch['planning.'+k]=toSave[k];});
+        await fb.updateDoc(ref,patch);
+      }catch(e){
+        console.error('Sauvegarde du planning échouée :',e);
+        // Pas de repli sur un set complet (risquerait d'écraser avec une copie périmée) : on remet le
+        // patch en attente pour qu'il reparte au prochain commit, plutôt que de le perdre.
+        planningPendingPatchRef.current={...toSave,...planningPendingPatchRef.current};
+      }
     },800);
   }
   async function saveMenuFicheUrl(url){
