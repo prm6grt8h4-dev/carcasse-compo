@@ -1410,9 +1410,13 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
     setTeamDraft(dTeam=>(dTeam||team).map(m=>m.id===id?{...m,dateFin}:m));
     setPendingRemoveId(null);setPendingRemoveDate('');
   }
+  const addMemberBtnRef=useRef(null);
   function addMember(){
     const id='membre_'+Date.now();
     setTeamDraft(dTeam=>[...(dTeam||team),{id,name:'Nouveau',role:'',group:'_unset',dateDebut:dateKey(businessNow())}]);
+    // La nouvelle ligne apparaît juste au-dessus de ce bouton — sans ça, sur une équipe de 18-19
+    // personnes, elle atterrit hors écran et donne l'impression que rien ne s'est passé.
+    setTimeout(()=>{addMemberBtnRef.current&&addMemberBtnRef.current.scrollIntoView({behavior:'smooth',block:'center'});},50);
   }
   const [teamSaveStatus,setTeamSaveStatus]=useState('idle'); // 'idle' | 'saving' | 'saved' | 'error'
   async function saveTeamDraft(){
@@ -1750,6 +1754,9 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
 
     {manageOpen&&(<div style={{border:'0.5px solid #d4d2c8',borderRadius:10,background:'#fff',padding:14,marginBottom:14}}>
       <h3 style={{fontSize:13,margin:'0 0 10px 0'}}>Gérer l'équipe du planning</h3>
+      <div style={{fontSize:12,fontWeight:600,color:JSON.stringify(draftTeam)!==JSON.stringify(team)?'#b45309':'#888',background:JSON.stringify(draftTeam)!==JSON.stringify(team)?'#fef3c7':'#f5f4f0',border:'0.5px solid '+(JSON.stringify(draftTeam)!==JSON.stringify(team)?'#d97706':'#e5e5e0'),borderRadius:6,padding:'6px 10px',marginBottom:10}}>
+        {draftTeam.length} personne{draftTeam.length>1?'s':''} dans le brouillon{JSON.stringify(draftTeam)!==JSON.stringify(team)?' — modifications non sauvegardées ⚠️':' (identique à la dernière sauvegarde)'}
+      </div>
       {draftTeam.map((m,i)=>{
         const roleOptions=knownRoles.map(r=><option key={r} value={r}>{r}</option>);
         return(<div key={m.id} style={{display:'flex',gap:6,alignItems:'center',marginBottom:6,flexWrap:'wrap'}}>
@@ -1788,7 +1795,7 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
           )}
         </div>);
       })}
-      <button onClick={addMember} style={{marginTop:8,padding:'8px 16px',fontSize:12,fontWeight:600,border:'none',borderRadius:8,cursor:'pointer',background:'#1a1a1a',color:'#fff'}}>+ Ajouter quelqu'un</button>
+      <button ref={addMemberBtnRef} onClick={addMember} style={{marginTop:8,padding:'8px 16px',fontSize:12,fontWeight:600,border:'none',borderRadius:8,cursor:'pointer',background:'#1a1a1a',color:'#fff'}}>+ Ajouter quelqu'un</button>
       <div style={{display:'flex',gap:8,alignItems:'center',marginTop:14,paddingTop:12,borderTop:'0.5px solid #eee'}}>
         <button onClick={saveTeamDraft} disabled={teamSaveStatus==='saving'} style={{padding:'9px 18px',fontSize:13,fontWeight:700,border:'none',borderRadius:8,cursor:teamSaveStatus==='saving'?'default':'pointer',background:'#1a6b3a',color:'#fff',opacity:teamSaveStatus==='saving'?0.6:1}}>
           {teamSaveStatus==='saving'?'Sauvegarde…':'Sauvegarder l\'équipe'}
