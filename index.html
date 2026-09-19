@@ -947,12 +947,20 @@ const DEFAULT_PLANNING={
   startDateISO:'2026-07-13',
 };
 
-const PLN_MAR_AUTOFILL_MAP={'14:00 / G':'14:00 / G','16:30 / F':'17:00 / F'};
-const PLN_MAR_TO_VEN_SAM={
-  '14:00 / G':{auto:'ven',value:'8:30 - 15:30\n18:15 - F'},
-  '16:30 / F':{auto:'sam',value:'8:30 - 15:30\n18:15 - F'},
+const PLN_COMMIS_LETTER_DEFAULTS={
+  G:{mar:'14:00 / G',merJeu:'14:00 / G',long:'8:30 - 15:30\n18:15 - F',longDay:'ven'},
+  F:{mar:'16:30 / F',merJeu:'17:00 / F',long:'8:30 - 15:30\n18:15 - F',longDay:'sam'},
 };
 const PLN_VEN_SAM_CHOICE_OPTIONS=['11:00 - 11:30 / 12:00 - G','11:30 / G'];
+// Détecte la lettre G/F d'un horaire en ne regardant que sa fin (dernière ligne, dernier "/ G" ou "- F"),
+// plutôt qu'une comparaison de texte intégral : une case avec un horaire personnalisé mais qui se termine
+// bien par "/ G" ou "/ F" reste reconnue, au lieu de bloquer silencieusement la rotation pour toujours.
+function plnHoraireLetter(str){
+  if(!str)return null;
+  const lastLine=String(str).split('\n').pop().trim();
+  const m=lastLine.match(/[-/]\s*([GF])\s*$/i);
+  return m?m[1].toUpperCase():null;
+}
 
 function plnIsMarLinkedMember(member){
   return !!member&&(member.role==='1er Commis'||member.group==='commis'||member.group==='stagiaire');
@@ -1025,6 +1033,7 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
   const startDateISO=data.startDateISO||DEFAULT_PLANNING.startDateISO;
   const groupOptions=data.groupOptions||{};
   const fixedOverrides=data.fixedPatternsOverride||{};
+  const commisLetterTexts=data.commisLetterTexts||{};
   // Source unique pour le lookup d'horaire fixe (motif personnel + motif de rang), utilisée par
   // applyFixedPatternIfAny, deriveHoraireForDay et buildAutoWeekSchedule : évite d'avoir 3 copies
   // de la même logique à maintenir en synchro.
@@ -1032,6 +1041,11 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
     const pattern=fixedOverrides[memberId]||PLN_FIXED_WEEK_PATTERNS[memberId];
     const rangFixed=plnIsRangRole(member)?(fixedOverrides['_rang']||PLN_RANG_FIXED_PATTERN):null;
     return {pattern,rangFixed};
+  }
+  function getCommisLetterConfig(letter){
+    const override=commisLetterTexts[letter]||{};
+    const def=PLN_COMMIS_LETTER_DEFAULTS[letter];
+    return {mar:override.mar||def.mar,merJeu:override.merJeu||def.merJeu,long:override.long||def.long,longDay:def.longDay};
   }
   function getOptionsFor(member){
     const effectiveGroup=member.role==='Stagiaire salle'?'commis':member.group;
@@ -1182,17 +1196,21 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
     if(applyFixedPatternIfAny(memberId,dayKey,newSchedule)){
       // motif fixe (horaire) déjà appliqué à toute la semaine
     }else if(dayKey==='mar'&&plnIsMarLinkedMember(member)&&horaire){
-      const mapped=PLN_MAR_AUTOFILL_MAP.hasOwnProperty(horaire)?PLN_MAR_AUTOFILL_MAP[horaire]:horaire;
-      const merExisting=newSchedule[memberId]['mer']||{};
-      const jeuExisting=newSchedule[memberId]['jeu']||{};
-      newSchedule[memberId]['mer']={horaire:mapped,tache:merExisting.tache||'',alerte:merExisting.alerte||'',off:false};
-      newSchedule[memberId]['jeu']={horaire:mapped,tache:jeuExisting.tache||'',alerte:jeuExisting.alerte||'',off:false};
-      const vs=PLN_MAR_TO_VEN_SAM[horaire];
-      if(vs){
-        const autoExisting=newSchedule[memberId][vs.auto]||{};
-        newSchedule[memberId][vs.auto]={horaire:vs.value,tache:autoExisting.tache||'',alerte:autoExisting.alerte||'',off:false};
-        const otherDay=vs.auto==='ven'?'sam':'ven';
-        nextPending={memberId,dayKey:otherDay,memberName:member.name};
+      const letter=plnHoraireLetter(horaire);
+      if(letter){
+        const cfg=getCommisLetterConfig(letter);
+        const merExisting=newSchedule[memberId]['mer']||{};
+        const jeuExisting=newSchedule[memberId]['jeu']||{};
+        // Une case déjà personnalisée à la main (horaireManual) n'est plus jamais écrasée par la
+        // ressaisie du mardi — seule la case en question (mardi) change.
+        if(!merExisting.horaireManual)newSchedule[memberId]['mer']={horaire:cfg.merJeu,tache:merExisting.tache||'',alerte:merExisting.alerte||'',off:false};
+        if(!jeuExisting.horaireManual)newSchedule[memberId]['jeu']={horaire:cfg.merJeu,tache:jeuExisting.tache||'',alerte:jeuExisting.alerte||'',off:false};
+        const autoExisting=newSchedule[memberId][cfg.longDay]||{};
+        if(!autoExisting.horaireManual)newSchedule[memberId][cfg.longDay]={horaire:cfg.long,tache:autoExisting.tache||'',alerte:autoExisting.alerte||'',off:false};
+        const otherDay=cfg.longDay==='ven'?'sam':'ven';
+        if(!(newSchedule[memberId][otherDay]&&newSchedule[memberId][otherDay].horaireManual)){
+          nextPending={memberId,dayKey:otherDay,memberName:member.name};
+        }
       }
     }
     if(isRangRotationRole(member)&&['mar','mer','jeu'].includes(dayKey)&&tache&&RANG_TACHE_CYCLE.includes(tache)){
@@ -1230,13 +1248,12 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
     const marHoraire=(marCell&&marCell.horaire)||'';
     if(plnIsMarLinkedMember(member)){
       if(!marHoraire)return '';
-      if(dayKey==='mer'||dayKey==='jeu'){
-        return PLN_MAR_AUTOFILL_MAP.hasOwnProperty(marHoraire)?PLN_MAR_AUTOFILL_MAP[marHoraire]:marHoraire;
-      }
-      if(dayKey==='ven'||dayKey==='sam'){
-        const vs=PLN_MAR_TO_VEN_SAM[marHoraire];
-        return (vs&&vs.auto===dayKey)?vs.value:'';
-      }
+      const letter=plnHoraireLetter(marHoraire);
+      if(!letter)return marHoraire;
+      const cfg=getCommisLetterConfig(letter);
+      if(dayKey==='mer'||dayKey==='jeu')return cfg.merJeu;
+      if(dayKey===cfg.longDay)return cfg.long;
+      return ''; // l'autre jour (ven ou sam) est laissé au choix manuel, jamais déduit automatiquement
     }
     return marHoraire; // repli : aucune règle connue pour cette personne
   }
@@ -1508,23 +1525,21 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
           Object.keys(src).forEach(d=>{cell[d]={horaire:src[d],tache:oldCell(d).tache||'',alerte:'',off:false};});
         }
       }else if(plnIsMarLinkedMember(member)){
-        // Commis / Stagiaires salle : bascule 14:00/G <-> 16:30/F une semaine sur deux
-        let marHoraire=oldCell('mar').horaire||'';
-        if(commisToggle){
-          if(marHoraire==='14:00 / G')marHoraire='16:30 / F';
-          else if(marHoraire==='16:30 / F')marHoraire='14:00 / G';
-        }
-        if(marHoraire){
-          const mapped=PLN_MAR_AUTOFILL_MAP.hasOwnProperty(marHoraire)?PLN_MAR_AUTOFILL_MAP[marHoraire]:marHoraire;
-          cell.mar={horaire:marHoraire,tache:'',alerte:'',off:false};
-          cell.mer={horaire:mapped,tache:'',alerte:'',off:false};
-          cell.jeu={horaire:mapped,tache:'',alerte:'',off:false};
-          const vs=PLN_MAR_TO_VEN_SAM[marHoraire];
-          if(vs){
-            cell[vs.auto]={horaire:vs.value,tache:'',alerte:'',off:false};
-            const otherDay=vs.auto==='ven'?'sam':'ven';
-            pendingList.push({memberId:member.id,dayKey:otherDay,memberName:member.name});
-          }
+        // Commis / Stagiaires salle : la nouvelle semaine démarre sur la lettre INVERSE de celle du
+        // samedi de la semaine précédente (dernier jour travaillé), déduite du texte réellement en
+        // place plutôt que d'un diff de semaines — donc ça ne peut plus rester bloqué si une case a
+        // un jour contenu un texte qui ne correspond plus exactement à l'ancien motif.
+        const hadPrevWeek=!!(oldCell('mar').horaire||oldCell('mer').horaire||oldCell('jeu').horaire||oldCell('ven').horaire||oldCell('sam').horaire);
+        if(hadPrevWeek){
+          const prevSamLetter=plnHoraireLetter(oldCell('sam').horaire);
+          const startLetter=prevSamLetter?(prevSamLetter==='G'?'F':'G'):(commisToggle?'F':'G');
+          const cfg=getCommisLetterConfig(startLetter);
+          cell.mar={horaire:cfg.mar,tache:'',alerte:'',off:false};
+          cell.mer={horaire:cfg.merJeu,tache:'',alerte:'',off:false};
+          cell.jeu={horaire:cfg.merJeu,tache:'',alerte:'',off:false};
+          cell[cfg.longDay]={horaire:cfg.long,tache:'',alerte:'',off:false};
+          const otherDay=cfg.longDay==='ven'?'sam':'ven';
+          pendingList.push({memberId:member.id,dayKey:otherDay,memberName:member.name});
         }
       }else{
         ['mar','mer','jeu','ven','sam'].forEach(d=>{
@@ -1936,6 +1951,27 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
                   <td style={{padding:6,fontWeight:600,color:'#888'}}>Saïd</td>
                   <td colSpan={5} style={{padding:6,color:'#888',fontStyle:'italic'}}>Recopie automatiquement la valeur saisie sur tous les jours (pas de motif éditable ici).</td>
                 </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{fontSize:12,fontWeight:700,color:'#555',textTransform:'uppercase',letterSpacing:'.05em',margin:'16px 0 8px'}}>Rotation Commis (lettre G / F)</div>
+          <div style={{fontSize:11,color:'#888',marginBottom:8}}>Saisir "14:00 / G" ou "16:30 / F" (ou tout texte se terminant par "/ G" ou "/ F") sur le mardi d'un commis applique automatiquement les textes ci-dessous. Le jour "long" (rempli automatiquement) est vendredi pour G, samedi pour F ; l'autre jour reste à choisir manuellement.</div>
+          <div style={{overflowX:'auto'}}>
+            <table style={{borderCollapse:'collapse',width:'100%',fontSize:11,marginBottom:8}}>
+              <thead><tr>
+                <th style={{textAlign:'left',padding:6,borderBottom:'1px solid #e5e7eb'}}>Lettre</th>
+                <th style={{padding:6,borderBottom:'1px solid #e5e7eb'}}>Mardi</th>
+                <th style={{padding:6,borderBottom:'1px solid #e5e7eb'}}>Mercredi / Jeudi</th>
+                <th style={{padding:6,borderBottom:'1px solid #e5e7eb'}}>Jour long (Ven pour G, Sam pour F)</th>
+              </tr></thead>
+              <tbody>
+                {['G','F'].map(letter=>{const cfg=getCommisLetterConfig(letter);return(<tr key={letter}>
+                  <td style={{padding:6,fontWeight:600,borderBottom:'0.5px solid #f0efe9'}}>{letter}</td>
+                  <td style={{padding:4,borderBottom:'0.5px solid #f0efe9'}}><textarea value={cfg.mar} onChange={e=>commit({commisLetterTexts:{...commisLetterTexts,[letter]:{...(commisLetterTexts[letter]||{}),mar:e.target.value}}})} style={{width:140,fontSize:11,padding:4,border:'0.5px solid #d4d2c8',borderRadius:5,minHeight:28}}/></td>
+                  <td style={{padding:4,borderBottom:'0.5px solid #f0efe9'}}><textarea value={cfg.merJeu} onChange={e=>commit({commisLetterTexts:{...commisLetterTexts,[letter]:{...(commisLetterTexts[letter]||{}),merJeu:e.target.value}}})} style={{width:140,fontSize:11,padding:4,border:'0.5px solid #d4d2c8',borderRadius:5,minHeight:28}}/></td>
+                  <td style={{padding:4,borderBottom:'0.5px solid #f0efe9'}}><textarea value={cfg.long} onChange={e=>commit({commisLetterTexts:{...commisLetterTexts,[letter]:{...(commisLetterTexts[letter]||{}),long:e.target.value}}})} style={{width:140,fontSize:11,padding:4,border:'0.5px solid #d4d2c8',borderRadius:5,minHeight:28}}/></td>
+                </tr>);})}
               </tbody>
             </table>
           </div>
