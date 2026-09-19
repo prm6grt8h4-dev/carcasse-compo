@@ -1882,7 +1882,13 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
 
     {showSettings&&(()=>{
       const dayCols=[{k:'mar',l:'Mar'},{k:'mer',l:'Mer'},{k:'jeu',l:'Jeu'},{k:'ven',l:'Ven'},{k:'sam',l:'Sam'}];
-      const patternCandidateIds=['giovanni','julien','michele','pauline','victoria','quentin','jorgen'];
+      const patternBaseIds=['giovanni','julien','michele','victoria','quentin','jorgen'];
+      // Tout membre du groupe "stagiaire" (ex : mineur avec des horaires légaux différents) apparaît
+      // automatiquement ici, sans qu'il faille ajouter son id à la main — un motif fixe non renseigné
+      // ne change rien à son comportement actuel (rotation G/F si applicable), il faut le remplir pour
+      // que ces horaires prennent le dessus sur la rotation automatique.
+      const stagiaireIds=team.filter(m=>m.group==='stagiaire'&&!patternBaseIds.includes(m.id)).map(m=>m.id);
+      const patternCandidateIds=[...patternBaseIds,...stagiaireIds];
       const patternRows=[
         ...patternCandidateIds.map(id=>team.find(m=>m.id===id)).filter(m=>m&&!(m.dateFin&&m.dateFin<startDateISO)).map(m=>({key:m.id,label:m.name})),
         {key:'_rang',label:'Cheffe / Chef de rang'},
