@@ -1060,6 +1060,7 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
   const [manageOpen,setManageOpen]=useState(false);
   const [teamDraft,setTeamDraft]=useState(null); // brouillon local de l'équipe pendant l'édition (rien n'est envoyé tant que "Sauvegarder l'équipe" n'est pas cliqué)
   const [dbgClicks,setDbgClicks]=useState(0); // TEMPORAIRE - compteur de diagnostic, à retirer une fois le bug trouvé
+  const [dbgLast,setDbgLast]=useState(''); // TEMPORAIRE
   useEffect(()=>{
     if(manageOpen)setTeamDraft(dc(team));
     else setTeamDraft(null);
@@ -1387,6 +1388,7 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
   // clics rapides (ex. régler le genre de tout le monde) déclenche autant de transactions concurrentes.
   function updateMember(id,field,value){
     setDbgClicks(c=>c+1);
+    setDbgLast('id='+JSON.stringify(id)+' field='+JSON.stringify(field)+' value='+JSON.stringify(value));
     setTeamDraft(dTeam=>{
       let newTeam=(dTeam||team).map(m=>m.id===id?{...m,[field]:value}:m);
       if(field==='group')newTeam=moveIntoGroupBlock(newTeam,id);
@@ -1759,6 +1761,7 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
       <h3 style={{fontSize:13,margin:'0 0 10px 0'}}>Gérer l'équipe du planning</h3>
       <div style={{fontSize:14,fontWeight:800,color:'#fff',background:'#c0392b',borderRadius:6,padding:'8px 10px',marginBottom:6,textAlign:'center'}}>
         DIAGNOSTIC — clics enregistrés : {dbgClicks}
+        <div style={{fontSize:11,fontWeight:400,fontFamily:'monospace',marginTop:4,wordBreak:'break-all'}}>{dbgLast||'(aucun clic encore)'}</div>
       </div>
       <div style={{fontSize:12,fontWeight:600,color:JSON.stringify(draftTeam)!==JSON.stringify(team)?'#b45309':'#888',background:JSON.stringify(draftTeam)!==JSON.stringify(team)?'#fef3c7':'#f5f4f0',border:'0.5px solid '+(JSON.stringify(draftTeam)!==JSON.stringify(team)?'#d97706':'#e5e5e0'),borderRadius:6,padding:'6px 10px',marginBottom:10}}>
         {draftTeam.length} personne{draftTeam.length>1?'s':''} dans le brouillon{JSON.stringify(draftTeam)!==JSON.stringify(team)?' — modifications non sauvegardées ⚠️':' (identique à la dernière sauvegarde)'}
@@ -1789,6 +1792,7 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
             <button onClick={()=>updateMember(m.id,'gender','m')} style={{padding:'4px 9px',fontSize:11,border:'0.5px solid '+((m.gender||'m')==='m'?'#378ADD':'#ccc'),borderRadius:6,cursor:'pointer',background:(m.gender||'m')==='m'?'#dbeafe':'#fff',color:(m.gender||'m')==='m'?'#1e40af':'#888',fontWeight:(m.gender||'m')==='m'?600:400}}>Garçon</button>
             <button onClick={()=>updateMember(m.id,'gender','f')} style={{padding:'4px 9px',fontSize:11,border:'0.5px solid '+(m.gender==='f'?'#be185d':'#ccc'),borderRadius:6,cursor:'pointer',background:m.gender==='f'?'#fce7f3':'#fff',color:m.gender==='f'?'#be185d':'#888',fontWeight:m.gender==='f'?600:400}}>Fille</button>
           </div>
+          <span style={{fontSize:9,fontFamily:'monospace',color:'#fff',background:'#7c3aed',borderRadius:4,padding:'2px 5px'}}>id:{String(m.id)} g:{String(m.gender)}</span>
           {m.dateFin&&<span style={{fontSize:10,color:'#991b1b',background:'#fee2e2',borderRadius:6,padding:'3px 7px'}}>Fin : {fmtDateFR(new Date(m.dateFin+'T12:00:00'))}</span>}
           {pendingRemoveId===m.id?(
             <div style={{display:'flex',gap:4,alignItems:'center',background:'#fee2e2',borderRadius:6,padding:'4px 6px'}}>
