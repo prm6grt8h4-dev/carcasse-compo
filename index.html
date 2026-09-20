@@ -1768,7 +1768,11 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
       <h3 style={{fontSize:13,margin:'0 0 10px 0'}}>Gérer l'équipe du planning</h3>
       <div style={{fontSize:14,fontWeight:800,color:'#fff',background:'#c0392b',borderRadius:6,padding:'8px 10px',marginBottom:6,textAlign:'center'}}>
         DIAGNOSTIC — clics enregistrés : {dbgClicks} — panneau ouvert/fermé : {dbgEffectRuns} fois
+        <div>
+          <button onClick={()=>setTeamDraft(function(){return [{id:'test',name:'TEST',gender:'f',role:'x',group:'_unset'}];})} style={{marginTop:6,padding:'6px 12px',fontSize:12,fontWeight:700,border:'2px solid #fff',borderRadius:6,cursor:'pointer',background:'#000',color:'#fff'}}>TEST — remplacer tout le brouillon</button>
+        </div>
         <div style={{fontSize:11,fontWeight:400,fontFamily:'monospace',marginTop:4,wordBreak:'break-all'}}>{dbgLast||'(aucun clic encore)'}</div>
+        <div style={{fontSize:11,fontWeight:700,fontFamily:'monospace',marginTop:4,wordBreak:'break-all',color:'#ffe066'}}>teamDraft est null ? {String(teamDraft===null)} — longueur : {teamDraft?teamDraft.length:'n/a'}</div>
         <div style={{fontSize:11,fontWeight:400,fontFamily:'monospace',marginTop:4,wordBreak:'break-all'}}>draftTeam[giovanni]={JSON.stringify(draftTeam.find(x=>x.id==='giovanni'))}</div>
         <div style={{fontSize:11,fontWeight:400,fontFamily:'monospace',marginTop:2,wordBreak:'break-all'}}>team[giovanni]={JSON.stringify(team.find(x=>x.id==='giovanni'))}</div>
       </div>
