@@ -1026,14 +1026,6 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
   const readOnly=readOnlyProp||!!previewEntry;
   const data=previewEntry?{...previewEntry.planning,startDateISO:previewEntry.startDateISO}:(planning||DEFAULT_PLANNING);
   const team=plnNormalizeTeam(data.team||PLN_TEAM_DEFAULT);
-  const draftTeam=teamDraft||team; // le panneau "Gérer l'équipe" affiche/édite ceci ; le reste de l'écran (tableau, options) reste sur "team" (la version déjà sauvegardée) tant que "Sauvegarder l'équipe" n'a pas été cliqué
-  // TEMPORAIRE — calculs de diagnostic sortis du JSX pour écarter un souci de transpilation Babel sur une expression trop complexe
-  const dbgTeamDraftIsNull=teamDraft===null;
-  const dbgTeamDraftLen=teamDraft?teamDraft.length:-1;
-  const dbgDraftTeamLen=draftTeam.length;
-  const dbgTeamLen=team.length;
-  const dbgSameRef=teamDraft===draftTeam;
-  const dbgIsArray=Array.isArray(teamDraft);
   const schedule=data.schedule||{};
   const dayOpen=data.dayOpen||DEFAULT_PLANNING.dayOpen;
   const notes=data.notes||{};
@@ -1065,7 +1057,22 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
   const [openEditor,setOpenEditor]=useState(null); // {memberId,dayKey} | {note:true,dayKey}
   const [editDraft,setEditDraft]=useState({horaire:'',tache:'',alerte:''});
   const [manageOpen,setManageOpen]=useState(false);
-  const [teamDraft,setTeamDraft]=useState(null); // brouillon local de l'équipe pendant l'édition (rien n'est envoyé tant que "Sauvegarder l'équipe" n'est pas cliqué)
+  const teamDraftRef=useRef(null); // brouillon local de l'équipe (useRef, pas useState : setTeamDraft(un tableau) ne mettait jamais réellement à jour l'état sur les appareils testés)
+  const [renderTick,setRenderTick]=useState(0); // incrémenté à chaque modification du brouillon pour forcer le nouveau rendu
+  const teamDraft=teamDraftRef.current;
+  function setTeamDraft(updaterOrValue){
+    const next=typeof updaterOrValue==='function'?updaterOrValue(teamDraftRef.current):updaterOrValue;
+    teamDraftRef.current=next;
+    setRenderTick(c=>c+1);
+  }
+  const draftTeam=teamDraft||team; // le panneau "Gérer l'équipe" affiche/édite ceci ; le reste de l'écran (tableau, options) reste sur "team" (la version déjà sauvegardée) tant que "Sauvegarder l'équipe" n'a pas été cliqué
+  // TEMPORAIRE — variables de diagnostic
+  const dbgTeamDraftIsNull=teamDraft===null;
+  const dbgTeamDraftLen=teamDraft?teamDraft.length:-1;
+  const dbgDraftTeamLen=draftTeam.length;
+  const dbgTeamLen=team.length;
+  const dbgSameRef=teamDraft===draftTeam;
+  const dbgIsArray=Array.isArray(teamDraft);
   const [dbgClicks,setDbgClicks]=useState(0); // TEMPORAIRE - compteur de diagnostic, à retirer une fois le bug trouvé
   const [dbgLast,setDbgLast]=useState(''); // TEMPORAIRE
   const [dbgEffectRuns,setDbgEffectRuns]=useState(0); // TEMPORAIRE
