@@ -1061,11 +1061,7 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
   const [teamDraft,setTeamDraft]=useState(null); // brouillon local de l'équipe pendant l'édition (rien n'est envoyé tant que "Sauvegarder l'équipe" n'est pas cliqué)
   const [dbgClicks,setDbgClicks]=useState(0); // TEMPORAIRE - compteur de diagnostic, à retirer une fois le bug trouvé
   const [dbgLast,setDbgLast]=useState(''); // TEMPORAIRE
-  useEffect(()=>{
-    if(manageOpen)setTeamDraft(dc(team));
-    else setTeamDraft(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[manageOpen]);
+  const [dbgEffectRuns,setDbgEffectRuns]=useState(0); // TEMPORAIRE
   const [newRoleDraftFor,setNewRoleDraftFor]=useState(null);
   const [newRoleText,setNewRoleText]=useState('');
   const [pendingChoiceQueue,setPendingChoiceQueue]=useState([]);
@@ -1453,7 +1449,7 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
 
 
   async function exportAsImage(){
-    setOpenEditor(null);setManageOpen(false);setExporting(true);
+    setOpenEditor(null);setManageOpen(false);setTeamDraft(null);setExporting(true);
     const prevZoom=zoomLevel;
     if(prevZoom!==1){
       setZoomLevel(1);
@@ -1756,7 +1752,7 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
     </div>)}
 
     <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}}>
-      {!readOnly&&<button onClick={()=>setManageOpen(o=>!o)} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Gérer l'équipe</button>}
+      {!readOnly&&<button onClick={()=>{setDbgEffectRuns(c=>c+1);setManageOpen(o=>{const next=!o;if(next)setTeamDraft(dc(team));else setTeamDraft(null);return next;});}} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Gérer l'équipe</button>}
       <button onClick={handleSave} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>{exporting?'Génération…':'Sauvegarder'}</button>
       {canArchive&&<button onClick={()=>{setShowArchive(true);loadArchive();}} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Archives</button>}
       {canManageSettings&&<button onClick={()=>setShowSettings(true)} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #d97706',borderRadius:6,cursor:'pointer',background:'#fef3c7',color:'#92400e'}}>Paramètres</button>}
@@ -1771,7 +1767,7 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
     {manageOpen&&(<div style={{border:'0.5px solid #d4d2c8',borderRadius:10,background:'#fff',padding:14,marginBottom:14}}>
       <h3 style={{fontSize:13,margin:'0 0 10px 0'}}>Gérer l'équipe du planning</h3>
       <div style={{fontSize:14,fontWeight:800,color:'#fff',background:'#c0392b',borderRadius:6,padding:'8px 10px',marginBottom:6,textAlign:'center'}}>
-        DIAGNOSTIC — clics enregistrés : {dbgClicks}
+        DIAGNOSTIC — clics enregistrés : {dbgClicks} — panneau ouvert/fermé : {dbgEffectRuns} fois
         <div style={{fontSize:11,fontWeight:400,fontFamily:'monospace',marginTop:4,wordBreak:'break-all'}}>{dbgLast||'(aucun clic encore)'}</div>
         <div style={{fontSize:11,fontWeight:400,fontFamily:'monospace',marginTop:4,wordBreak:'break-all'}}>draftTeam[giovanni]={JSON.stringify(draftTeam.find(x=>x.id==='giovanni'))}</div>
         <div style={{fontSize:11,fontWeight:400,fontFamily:'monospace',marginTop:2,wordBreak:'break-all'}}>team[giovanni]={JSON.stringify(team.find(x=>x.id==='giovanni'))}</div>
