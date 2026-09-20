@@ -1797,10 +1797,10 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
           <label style={{fontSize:10,color:'#888',display:'flex',alignItems:'center',gap:4}}>Début
             <input type="date" value={m.dateDebut||''} onChange={e=>updateMember(m.id,'dateDebut',e.target.value)} style={{fontSize:11,padding:'4px 6px',border:'0.5px solid #d4d2c8',borderRadius:6}}/>
           </label>
-          <div style={{display:'flex',gap:4}}>
-            <button onClick={()=>updateMember(m.id,'gender','m')} style={{padding:'4px 9px',fontSize:11,border:'0.5px solid '+((m.gender||'m')==='m'?'#378ADD':'#ccc'),borderRadius:6,cursor:'pointer',background:(m.gender||'m')==='m'?'#dbeafe':'#fff',color:(m.gender||'m')==='m'?'#1e40af':'#888',fontWeight:(m.gender||'m')==='m'?600:400}}>Garçon</button>
-            <button onClick={()=>updateMember(m.id,'gender','f')} style={{padding:'4px 9px',fontSize:11,border:'0.5px solid '+(m.gender==='f'?'#be185d':'#ccc'),borderRadius:6,cursor:'pointer',background:m.gender==='f'?'#fce7f3':'#fff',color:m.gender==='f'?'#be185d':'#888',fontWeight:m.gender==='f'?600:400}}>Fille</button>
-          </div>
+          <select value={m.gender||'m'} onChange={e=>updateMember(m.id,'gender',e.target.value)} style={{fontSize:11,padding:5,border:'0.5px solid #d4d2c8',borderRadius:6}}>
+            <option value="m">Garçon</option>
+            <option value="f">Fille</option>
+          </select>
           <span style={{fontSize:9,fontFamily:'monospace',color:'#fff',background:'#7c3aed',borderRadius:4,padding:'2px 5px'}}>id:{String(m.id)} g:{String(m.gender)}</span>
           {m.dateFin&&<span style={{fontSize:10,color:'#991b1b',background:'#fee2e2',borderRadius:6,padding:'3px 7px'}}>Fin : {fmtDateFR(new Date(m.dateFin+'T12:00:00'))}</span>}
           {pendingRemoveId===m.id?(
