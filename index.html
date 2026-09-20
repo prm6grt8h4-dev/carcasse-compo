@@ -1772,7 +1772,7 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
           <button onClick={()=>setTeamDraft(function(){return [{id:'test',name:'TEST',gender:'f',role:'x',group:'_unset'}];})} style={{marginTop:6,padding:'6px 12px',fontSize:12,fontWeight:700,border:'2px solid #fff',borderRadius:6,cursor:'pointer',background:'#000',color:'#fff'}}>TEST — remplacer tout le brouillon</button>
         </div>
         <div style={{fontSize:11,fontWeight:400,fontFamily:'monospace',marginTop:4,wordBreak:'break-all'}}>{dbgLast||'(aucun clic encore)'}</div>
-        <div style={{fontSize:11,fontWeight:700,fontFamily:'monospace',marginTop:4,wordBreak:'break-all',color:'#ffe066'}}>teamDraft est null ? {String(teamDraft===null)} — longueur : {teamDraft?teamDraft.length:'n/a'}</div>
+        <div style={{fontSize:11,fontWeight:700,fontFamily:'monospace',marginTop:4,wordBreak:'break-all',color:'#ffe066'}}>teamDraft est null ? {String(teamDraft===null)} — teamDraft.length : {teamDraft?teamDraft.length:'n/a'} — draftTeam.length (même expression que le bandeau gris) : {draftTeam.length}</div>
         <div style={{fontSize:11,fontWeight:400,fontFamily:'monospace',marginTop:4,wordBreak:'break-all'}}>draftTeam[giovanni]={JSON.stringify(draftTeam.find(x=>x.id==='giovanni'))}</div>
         <div style={{fontSize:11,fontWeight:400,fontFamily:'monospace',marginTop:2,wordBreak:'break-all'}}>team[giovanni]={JSON.stringify(team.find(x=>x.id==='giovanni'))}</div>
       </div>
