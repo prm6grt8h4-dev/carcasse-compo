@@ -1057,16 +1057,6 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
   const [openEditor,setOpenEditor]=useState(null); // {memberId,dayKey} | {note:true,dayKey}
   const [editDraft,setEditDraft]=useState({horaire:'',tache:'',alerte:''});
   const [manageOpen,setManageOpen]=useState(false);
-  const teamDraftRef=useRef(null); // brouillon local de l'équipe (useRef, pas useState : setTeamDraft(un tableau) ne mettait jamais réellement à jour l'état sur les appareils testés)
-  const teamBaselineRef=useRef(null); // photo de "team" au moment de l'ouverture du panneau — sert à distinguer, à la sauvegarde, ce qui a vraiment été modifié dans CETTE session de ce qui ne l'a pas été
-  const [renderTick,setRenderTick]=useState(0); // incrémenté à chaque modification du brouillon pour forcer le nouveau rendu
-  const teamDraft=teamDraftRef.current;
-  function setTeamDraft(updaterOrValue){
-    const next=typeof updaterOrValue==='function'?updaterOrValue(teamDraftRef.current):updaterOrValue;
-    teamDraftRef.current=next;
-    setRenderTick(c=>c+1);
-  }
-  const draftTeam=teamDraft||team; // le panneau "Gérer l'équipe" affiche/édite ceci ; le reste de l'écran (tableau, options) reste sur "team" (la version déjà sauvegardée) tant que "Sauvegarder l'équipe" n'a pas été cliqué
   const [newRoleDraftFor,setNewRoleDraftFor]=useState(null);
   const [newRoleText,setNewRoleText]=useState('');
   const [pendingChoiceQueue,setPendingChoiceQueue]=useState([]);
@@ -1388,22 +1378,27 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
     else rest.splice(insertAt+1,0,member);
     return rest;
   }
-  // Toutes les fonctions ci-dessous n'écrivent que dans le brouillon local (teamDraft) — rien n'est
-  // envoyé à Firestore avant le clic explicite sur "Sauvegarder l'équipe". Ça évite qu'une rafale de
-  // clics rapides (ex. régler le genre de tout le monde) déclenche autant de transactions concurrentes.
+  // Chaque action ci-dessous écrit immédiatement, via une transaction qui relit la version la plus
+  // fraîche du serveur juste avant d'écrire — donc jamais de risque d'écraser ce qu'un autre appareil
+  // aurait changé entre-temps sur quelqu'un d'autre.
   function updateMember(id,field,value){
-    setTeamDraft(dTeam=>{
-      let newTeam=(dTeam||team).map(m=>m.id===id?{...m,[field]:value}:m);
+    updateTeamTransactional(freshTeam=>{
+      let newTeam=freshTeam.map(m=>m.id===id?{...m,[field]:value}:m);
       if(field==='group')newTeam=moveIntoGroupBlock(newTeam,id);
       return newTeam;
     });
   }
   function moveMember(i,dir){
-    setTeamDraft(dTeam=>{
-      const t=dTeam||team;
-      const j=i+dir;if(j<0||j>=t.length)return t;
-      const newTeam=[...t];
-      [newTeam[i],newTeam[j]]=[newTeam[j],newTeam[i]];
+    // Échange basé sur l'identité des deux membres (pas leur position), au cas où la liste côté
+    // serveur aurait changé entre-temps.
+    const a=team[i],b=team[i+dir];
+    if(!a||!b)return;
+    updateTeamTransactional(freshTeam=>{
+      const ia=freshTeam.findIndex(m=>m.id===a.id);
+      const ib=freshTeam.findIndex(m=>m.id===b.id);
+      if(ia<0||ib<0)return freshTeam;
+      const newTeam=[...freshTeam];
+      [newTeam[ia],newTeam[ib]]=[newTeam[ib],newTeam[ia]];
       return newTeam;
     });
   }
@@ -1414,62 +1409,22 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
   function confirmRemoveMember(){
     if(!pendingRemoveId||!pendingRemoveDate)return;
     const id=pendingRemoveId,dateFin=pendingRemoveDate;
-    setTeamDraft(dTeam=>(dTeam||team).map(m=>m.id===id?{...m,dateFin}:m));
+    updateTeamTransactional(freshTeam=>freshTeam.map(m=>m.id===id?{...m,dateFin}:m));
     setPendingRemoveId(null);setPendingRemoveDate('');
   }
   const addMemberBtnRef=useRef(null);
   function addMember(){
     const id='membre_'+Date.now();
-    setTeamDraft(dTeam=>[...(dTeam||team),{id,name:'Nouveau',role:'',group:'_unset',dateDebut:dateKey(businessNow())}]);
+    updateTeamTransactional(freshTeam=>[...freshTeam,{id,name:'Nouveau',role:'',group:'_unset',dateDebut:dateKey(businessNow())}]);
     // La nouvelle ligne apparaît juste au-dessus de ce bouton — sans ça, sur une équipe de 18-19
     // personnes, elle atterrit hors écran et donne l'impression que rien ne s'est passé.
     setTimeout(()=>{addMemberBtnRef.current&&addMemberBtnRef.current.scrollIntoView({behavior:'smooth',block:'center'});},50);
-  }
-  const [teamSaveStatus,setTeamSaveStatus]=useState('idle'); // 'idle' | 'saving' | 'saved' | 'error'
-  // Fusionne le brouillon local sur la version la plus fraîche du serveur : seuls les champs qui
-  // diffèrent réellement entre le brouillon et la baseline (= modifiés dans CETTE session) sont
-  // réappliqués. Tout le reste vient de "freshTeam", pour ne jamais écraser ce qu'un autre appareil
-  // a changé entre-temps sur des membres qu'on n'a pas soi-même touchés.
-  function mergeTeamEdits(freshTeam,baseline,draft){
-    const freshById={};freshTeam.forEach(m=>{freshById[m.id]=m;});
-    const baseById={};baseline.forEach(m=>{baseById[m.id]=m;});
-    const seen={};
-    const result=draft.map(dm=>{
-      seen[dm.id]=true;
-      const base=baseById[dm.id];
-      if(!base)return freshById[dm.id]||dm; // ajouté pendant cette session, n'existait pas à l'ouverture
-      const merged={...(freshById[dm.id]||dm)};
-      Object.keys(dm).forEach(field=>{
-        if(dm[field]!==base[field])merged[field]=dm[field]; // modifié dans cette session -> l'emporte
-      });
-      return merged;
-    });
-    freshTeam.forEach(fm=>{if(!seen[fm.id])result.push(fm);}); // ajouté ailleurs entre-temps
-    return result;
-  }
-  async function saveTeamDraft(){
-    if(!teamDraft)return;
-    setTeamSaveStatus('saving');
-    try{
-      const baseline=teamBaselineRef.current||team;
-      const result=await updateTeamTransactional(freshTeam=>mergeTeamEdits(freshTeam,baseline,teamDraft));
-      if(result){teamBaselineRef.current=dc(result);setTeamDraft(dc(result));}
-      setTeamSaveStatus('saved');
-      setTimeout(()=>setTeamSaveStatus('idle'),2000);
-    }catch(e){
-      setTeamSaveStatus('error');
-    }
-  }
-  function cancelTeamDraft(){
-    const snap=dc(team);
-    teamBaselineRef.current=snap;
-    setTeamDraft(snap);
   }
 
 
 
   async function exportAsImage(){
-    setOpenEditor(null);setManageOpen(false);teamBaselineRef.current=null;setTeamDraft(null);setExporting(true);
+    setOpenEditor(null);setManageOpen(false);setExporting(true);
     const prevZoom=zoomLevel;
     if(prevZoom!==1){
       setZoomLevel(1);
@@ -1772,7 +1727,7 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
     </div>)}
 
     <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}}>
-      {!readOnly&&<button onClick={()=>setManageOpen(o=>{const next=!o;if(next){const snap=dc(team);teamBaselineRef.current=snap;setTeamDraft(snap);}else{teamBaselineRef.current=null;setTeamDraft(null);}return next;})} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Gérer l'équipe</button>}
+      {!readOnly&&<button onClick={()=>setManageOpen(o=>!o)} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Gérer l'équipe</button>}
       <button onClick={handleSave} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>{exporting?'Génération…':'Sauvegarder'}</button>
       {canArchive&&<button onClick={()=>{setShowArchive(true);loadArchive();}} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Archives</button>}
       {canManageSettings&&<button onClick={()=>setShowSettings(true)} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #d97706',borderRadius:6,cursor:'pointer',background:'#fef3c7',color:'#92400e'}}>Paramètres</button>}
@@ -1786,14 +1741,11 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
 
     {manageOpen&&(<div style={{border:'0.5px solid #d4d2c8',borderRadius:10,background:'#fff',padding:14,marginBottom:14}}>
       <h3 style={{fontSize:13,margin:'0 0 10px 0'}}>Gérer l'équipe du planning</h3>
-      <div style={{fontSize:12,fontWeight:600,color:JSON.stringify(draftTeam)!==JSON.stringify(team)?'#b45309':'#888',background:JSON.stringify(draftTeam)!==JSON.stringify(team)?'#fef3c7':'#f5f4f0',border:'0.5px solid '+(JSON.stringify(draftTeam)!==JSON.stringify(team)?'#d97706':'#e5e5e0'),borderRadius:6,padding:'6px 10px',marginBottom:10}}>
-        {draftTeam.length} personne{draftTeam.length>1?'s':''} dans le brouillon{JSON.stringify(draftTeam)!==JSON.stringify(team)?' — modifications non sauvegardées ⚠️':' (identique à la dernière sauvegarde)'}
-      </div>
-      {draftTeam.map((m,i)=>{
+      {team.map((m,i)=>{
         const roleOptions=knownRoles.map(r=><option key={r} value={r}>{r}</option>);
         return(<div key={m.id} style={{display:'flex',gap:6,alignItems:'center',marginBottom:6,flexWrap:'wrap'}}>
           <button onClick={()=>moveMember(i,-1)} disabled={i===0} style={{border:'0.5px solid #ccc',background:'#f9f9f7',borderRadius:6,padding:'4px 8px',fontSize:12,cursor:'pointer'}}>▲</button>
-          <button onClick={()=>moveMember(i,1)} disabled={i===draftTeam.length-1} style={{border:'0.5px solid #ccc',background:'#f9f9f7',borderRadius:6,padding:'4px 8px',fontSize:12,cursor:'pointer'}}>▼</button>
+          <button onClick={()=>moveMember(i,1)} disabled={i===team.length-1} style={{border:'0.5px solid #ccc',background:'#f9f9f7',borderRadius:6,padding:'4px 8px',fontSize:12,cursor:'pointer'}}>▼</button>
           <input type="text" value={m.name} onChange={e=>updateMember(m.id,'name',e.target.value)} onFocus={e=>e.target.select()} style={{width:110,fontSize:12,padding:'5px 7px',border:'0.5px solid #d4d2c8',borderRadius:6}}/>
           {newRoleDraftFor===m.id?(<>
             <input type="text" autoFocus value={newRoleText} onChange={e=>setNewRoleText(e.target.value)} placeholder="Nouveau statut…" style={{width:150,fontSize:12,padding:'5px 7px',border:'0.5px solid #d4d2c8',borderRadius:6}}/>
@@ -1828,16 +1780,8 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
         </div>);
       })}
       <button ref={addMemberBtnRef} onClick={addMember} style={{marginTop:8,padding:'8px 16px',fontSize:12,fontWeight:600,border:'none',borderRadius:8,cursor:'pointer',background:'#1a1a1a',color:'#fff'}}>+ Ajouter quelqu'un</button>
-      <div style={{display:'flex',gap:8,alignItems:'center',marginTop:14,paddingTop:12,borderTop:'0.5px solid #eee'}}>
-        <button onClick={saveTeamDraft} disabled={teamSaveStatus==='saving'} style={{padding:'9px 18px',fontSize:13,fontWeight:700,border:'none',borderRadius:8,cursor:teamSaveStatus==='saving'?'default':'pointer',background:'#1a6b3a',color:'#fff',opacity:teamSaveStatus==='saving'?0.6:1}}>
-          {teamSaveStatus==='saving'?'Sauvegarde…':'Sauvegarder l\'équipe'}
-        </button>
-        <button onClick={cancelTeamDraft} style={{padding:'9px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:8,cursor:'pointer',background:'#fff',color:'#555'}}>Annuler les changements</button>
-        {teamSaveStatus==='saved'&&<span style={{fontSize:12,color:'#166534',fontWeight:600}}>✓ Enregistré</span>}
-        {teamSaveStatus==='error'&&<span style={{fontSize:12,color:'#991b1b',fontWeight:600}}>Échec de la sauvegarde, réessaie</span>}
-      </div>
-      <div style={{fontSize:11,color:'#888',marginTop:6}}>Rien n'est envoyé tant que "Sauvegarder l'équipe" n'est pas cliqué — le tableau ci-dessous garde la dernière version enregistrée jusque-là.</div>
     </div>)}
+
 
 
     <div ref={wrapperRef} onTouchStart={onWrapperTouchStart} onTouchMove={onWrapperTouchMove} onTouchEnd={onWrapperTouchEnd} style={{overflowX:'auto',border:'0.5px solid #d4d2c8',borderRadius:10,background:'#fff',position:'relative',touchAction:'pan-x pan-y'}}>
