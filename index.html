@@ -1066,16 +1066,6 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
     setRenderTick(c=>c+1);
   }
   const draftTeam=teamDraft||team; // le panneau "Gérer l'équipe" affiche/édite ceci ; le reste de l'écran (tableau, options) reste sur "team" (la version déjà sauvegardée) tant que "Sauvegarder l'équipe" n'a pas été cliqué
-  // TEMPORAIRE — variables de diagnostic
-  const dbgTeamDraftIsNull=teamDraft===null;
-  const dbgTeamDraftLen=teamDraft?teamDraft.length:-1;
-  const dbgDraftTeamLen=draftTeam.length;
-  const dbgTeamLen=team.length;
-  const dbgSameRef=teamDraft===draftTeam;
-  const dbgIsArray=Array.isArray(teamDraft);
-  const [dbgClicks,setDbgClicks]=useState(0); // TEMPORAIRE - compteur de diagnostic, à retirer une fois le bug trouvé
-  const [dbgLast,setDbgLast]=useState(''); // TEMPORAIRE
-  const [dbgEffectRuns,setDbgEffectRuns]=useState(0); // TEMPORAIRE
   const [newRoleDraftFor,setNewRoleDraftFor]=useState(null);
   const [newRoleText,setNewRoleText]=useState('');
   const [pendingChoiceQueue,setPendingChoiceQueue]=useState([]);
@@ -1397,21 +1387,8 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
   // envoyé à Firestore avant le clic explicite sur "Sauvegarder l'équipe". Ça évite qu'une rafale de
   // clics rapides (ex. régler le genre de tout le monde) déclenche autant de transactions concurrentes.
   function updateMember(id,field,value){
-    setDbgClicks(c=>c+1);
-    setDbgLast('id='+JSON.stringify(id)+' field='+JSON.stringify(field)+' value='+JSON.stringify(value));
-    setTeamDraft(function(dTeam){
-      var base=dTeam||team;
-      var newTeam=[];
-      for(var i=0;i<base.length;i++){
-        var m=base[i];
-        if(m.id===id){
-          var copy=Object.assign({},m);
-          copy[field]=value;
-          newTeam.push(copy);
-        }else{
-          newTeam.push(m);
-        }
-      }
+    setTeamDraft(dTeam=>{
+      let newTeam=(dTeam||team).map(m=>m.id===id?{...m,[field]:value}:m);
       if(field==='group')newTeam=moveIntoGroupBlock(newTeam,id);
       return newTeam;
     });
@@ -1437,7 +1414,6 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
   }
   const addMemberBtnRef=useRef(null);
   function addMember(){
-    setDbgClicks(c=>c+1);
     const id='membre_'+Date.now();
     setTeamDraft(dTeam=>[...(dTeam||team),{id,name:'Nouveau',role:'',group:'_unset',dateDebut:dateKey(businessNow())}]);
     // La nouvelle ligne apparaît juste au-dessus de ce bouton — sans ça, sur une équipe de 18-19
@@ -1766,7 +1742,7 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
     </div>)}
 
     <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}}>
-      {!readOnly&&<button onClick={()=>{setDbgEffectRuns(c=>c+1);setManageOpen(o=>{const next=!o;if(next)setTeamDraft(dc(team));else setTeamDraft(null);return next;});}} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Gérer l'équipe</button>}
+      {!readOnly&&<button onClick={()=>setManageOpen(o=>{const next=!o;if(next)setTeamDraft(dc(team));else setTeamDraft(null);return next;})} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Gérer l'équipe</button>}
       <button onClick={handleSave} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>{exporting?'Génération…':'Sauvegarder'}</button>
       {canArchive&&<button onClick={()=>{setShowArchive(true);loadArchive();}} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Archives</button>}
       {canManageSettings&&<button onClick={()=>setShowSettings(true)} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #d97706',borderRadius:6,cursor:'pointer',background:'#fef3c7',color:'#92400e'}}>Paramètres</button>}
@@ -1780,23 +1756,12 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
 
     {manageOpen&&(<div style={{border:'0.5px solid #d4d2c8',borderRadius:10,background:'#fff',padding:14,marginBottom:14}}>
       <h3 style={{fontSize:13,margin:'0 0 10px 0'}}>Gérer l'équipe du planning</h3>
-      <div style={{fontSize:14,fontWeight:800,color:'#fff',background:'#c0392b',borderRadius:6,padding:'8px 10px',marginBottom:6,textAlign:'center'}}>
-        DIAGNOSTIC — clics enregistrés : {dbgClicks} — panneau ouvert/fermé : {dbgEffectRuns} fois
-        <div>
-          <button onClick={()=>setTeamDraft(function(){return [{id:'test',name:'TEST',gender:'f',role:'x',group:'_unset'}];})} style={{marginTop:6,padding:'6px 12px',fontSize:12,fontWeight:700,border:'2px solid #fff',borderRadius:6,cursor:'pointer',background:'#000',color:'#fff'}}>TEST — remplacer tout le brouillon</button>
-        </div>
-        <div style={{fontSize:11,fontWeight:400,fontFamily:'monospace',marginTop:4,wordBreak:'break-all'}}>{dbgLast||'(aucun clic encore)'}</div>
-        <div style={{fontSize:11,fontWeight:700,fontFamily:'monospace',marginTop:4,wordBreak:'break-all',color:'#ffe066'}}>null:{String(dbgTeamDraftIsNull)} isArray:{String(dbgIsArray)} teamDraft.len:{dbgTeamDraftLen} draftTeam.len:{dbgDraftTeamLen} team.len:{dbgTeamLen} sameRef:{String(dbgSameRef)}</div>
-        <div style={{fontSize:11,fontWeight:400,fontFamily:'monospace',marginTop:4,wordBreak:'break-all'}}>draftTeam[giovanni]={JSON.stringify(draftTeam.find(x=>x.id==='giovanni'))}</div>
-        <div style={{fontSize:11,fontWeight:400,fontFamily:'monospace',marginTop:2,wordBreak:'break-all'}}>team[giovanni]={JSON.stringify(team.find(x=>x.id==='giovanni'))}</div>
-      </div>
-      <div key={'banner-'+dbgClicks+'-'+draftTeam.length} style={{fontSize:12,fontWeight:600,color:JSON.stringify(draftTeam)!==JSON.stringify(team)?'#b45309':'#888',background:JSON.stringify(draftTeam)!==JSON.stringify(team)?'#fef3c7':'#f5f4f0',border:'0.5px solid '+(JSON.stringify(draftTeam)!==JSON.stringify(team)?'#d97706':'#e5e5e0'),borderRadius:6,padding:'6px 10px',marginBottom:10}}>
+      <div style={{fontSize:12,fontWeight:600,color:JSON.stringify(draftTeam)!==JSON.stringify(team)?'#b45309':'#888',background:JSON.stringify(draftTeam)!==JSON.stringify(team)?'#fef3c7':'#f5f4f0',border:'0.5px solid '+(JSON.stringify(draftTeam)!==JSON.stringify(team)?'#d97706':'#e5e5e0'),borderRadius:6,padding:'6px 10px',marginBottom:10}}>
         {draftTeam.length} personne{draftTeam.length>1?'s':''} dans le brouillon{JSON.stringify(draftTeam)!==JSON.stringify(team)?' — modifications non sauvegardées ⚠️':' (identique à la dernière sauvegarde)'}
       </div>
-      <div key={'rows-'+draftTeam.length}>
       {draftTeam.map((m,i)=>{
         const roleOptions=knownRoles.map(r=><option key={r} value={r}>{r}</option>);
-        return(<div key={m.id+'|'+(m.gender||'m')+'|'+m.role+'|'+m.group} style={{display:'flex',gap:6,alignItems:'center',marginBottom:6,flexWrap:'wrap'}}>
+        return(<div key={m.id} style={{display:'flex',gap:6,alignItems:'center',marginBottom:6,flexWrap:'wrap'}}>
           <button onClick={()=>moveMember(i,-1)} disabled={i===0} style={{border:'0.5px solid #ccc',background:'#f9f9f7',borderRadius:6,padding:'4px 8px',fontSize:12,cursor:'pointer'}}>▲</button>
           <button onClick={()=>moveMember(i,1)} disabled={i===draftTeam.length-1} style={{border:'0.5px solid #ccc',background:'#f9f9f7',borderRadius:6,padding:'4px 8px',fontSize:12,cursor:'pointer'}}>▼</button>
           <input type="text" value={m.name} onChange={e=>updateMember(m.id,'name',e.target.value)} onFocus={e=>e.target.select()} style={{width:110,fontSize:12,padding:'5px 7px',border:'0.5px solid #d4d2c8',borderRadius:6}}/>
@@ -1816,11 +1781,10 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
           <label style={{fontSize:10,color:'#888',display:'flex',alignItems:'center',gap:4}}>Début
             <input type="date" value={m.dateDebut||''} onChange={e=>updateMember(m.id,'dateDebut',e.target.value)} style={{fontSize:11,padding:'4px 6px',border:'0.5px solid #d4d2c8',borderRadius:6}}/>
           </label>
-          <select value={m.gender||'m'} onChange={e=>updateMember(m.id,'gender',e.target.value)} style={{fontSize:11,padding:5,border:'0.5px solid #d4d2c8',borderRadius:6}}>
-            <option value="m">Garçon</option>
-            <option value="f">Fille</option>
-          </select>
-          <span style={{fontSize:9,fontFamily:'monospace',color:'#fff',background:'#7c3aed',borderRadius:4,padding:'2px 5px'}}>id:{String(m.id)} g:{String(m.gender)}</span>
+          <div style={{display:'flex',gap:4}}>
+            <button onClick={()=>updateMember(m.id,'gender','m')} style={{padding:'4px 9px',fontSize:11,border:'0.5px solid '+((m.gender||'m')==='m'?'#378ADD':'#ccc'),borderRadius:6,cursor:'pointer',background:(m.gender||'m')==='m'?'#dbeafe':'#fff',color:(m.gender||'m')==='m'?'#1e40af':'#888',fontWeight:(m.gender||'m')==='m'?600:400}}>Garçon</button>
+            <button onClick={()=>updateMember(m.id,'gender','f')} style={{padding:'4px 9px',fontSize:11,border:'0.5px solid '+(m.gender==='f'?'#be185d':'#ccc'),borderRadius:6,cursor:'pointer',background:m.gender==='f'?'#fce7f3':'#fff',color:m.gender==='f'?'#be185d':'#888',fontWeight:m.gender==='f'?600:400}}>Fille</button>
+          </div>
           {m.dateFin&&<span style={{fontSize:10,color:'#991b1b',background:'#fee2e2',borderRadius:6,padding:'3px 7px'}}>Fin : {fmtDateFR(new Date(m.dateFin+'T12:00:00'))}</span>}
           {pendingRemoveId===m.id?(
             <div style={{display:'flex',gap:4,alignItems:'center',background:'#fee2e2',borderRadius:6,padding:'4px 6px'}}>
@@ -1833,7 +1797,6 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
           )}
         </div>);
       })}
-      </div>
       <button ref={addMemberBtnRef} onClick={addMember} style={{marginTop:8,padding:'8px 16px',fontSize:12,fontWeight:600,border:'none',borderRadius:8,cursor:'pointer',background:'#1a1a1a',color:'#fff'}}>+ Ajouter quelqu'un</button>
       <div style={{display:'flex',gap:8,alignItems:'center',marginTop:14,paddingTop:12,borderTop:'0.5px solid #eee'}}>
         <button onClick={saveTeamDraft} disabled={teamSaveStatus==='saving'} style={{padding:'9px 18px',fontSize:13,fontWeight:700,border:'none',borderRadius:8,cursor:teamSaveStatus==='saving'?'default':'pointer',background:'#1a6b3a',color:'#fff',opacity:teamSaveStatus==='saving'?0.6:1}}>
