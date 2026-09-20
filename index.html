@@ -1389,8 +1389,19 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
   function updateMember(id,field,value){
     setDbgClicks(c=>c+1);
     setDbgLast('id='+JSON.stringify(id)+' field='+JSON.stringify(field)+' value='+JSON.stringify(value));
-    setTeamDraft(dTeam=>{
-      let newTeam=(dTeam||team).map(m=>m.id===id?{...m,[field]:value}:m);
+    setTeamDraft(function(dTeam){
+      var base=dTeam||team;
+      var newTeam=[];
+      for(var i=0;i<base.length;i++){
+        var m=base[i];
+        if(m.id===id){
+          var copy=Object.assign({},m);
+          copy[field]=value;
+          newTeam.push(copy);
+        }else{
+          newTeam.push(m);
+        }
+      }
       if(field==='group')newTeam=moveIntoGroupBlock(newTeam,id);
       return newTeam;
     });
@@ -1762,6 +1773,8 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
       <div style={{fontSize:14,fontWeight:800,color:'#fff',background:'#c0392b',borderRadius:6,padding:'8px 10px',marginBottom:6,textAlign:'center'}}>
         DIAGNOSTIC — clics enregistrés : {dbgClicks}
         <div style={{fontSize:11,fontWeight:400,fontFamily:'monospace',marginTop:4,wordBreak:'break-all'}}>{dbgLast||'(aucun clic encore)'}</div>
+        <div style={{fontSize:11,fontWeight:400,fontFamily:'monospace',marginTop:4,wordBreak:'break-all'}}>draftTeam[giovanni]={JSON.stringify(draftTeam.find(x=>x.id==='giovanni'))}</div>
+        <div style={{fontSize:11,fontWeight:400,fontFamily:'monospace',marginTop:2,wordBreak:'break-all'}}>team[giovanni]={JSON.stringify(team.find(x=>x.id==='giovanni'))}</div>
       </div>
       <div style={{fontSize:12,fontWeight:600,color:JSON.stringify(draftTeam)!==JSON.stringify(team)?'#b45309':'#888',background:JSON.stringify(draftTeam)!==JSON.stringify(team)?'#fef3c7':'#f5f4f0',border:'0.5px solid '+(JSON.stringify(draftTeam)!==JSON.stringify(team)?'#d97706':'#e5e5e0'),borderRadius:6,padding:'6px 10px',marginBottom:10}}>
         {draftTeam.length} personne{draftTeam.length>1?'s':''} dans le brouillon{JSON.stringify(draftTeam)!==JSON.stringify(team)?' — modifications non sauvegardées ⚠️':' (identique à la dernière sauvegarde)'}
