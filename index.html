@@ -1058,6 +1058,7 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
   const [editDraft,setEditDraft]=useState({horaire:'',tache:'',alerte:''});
   const [manageOpen,setManageOpen]=useState(false);
   const teamDraftRef=useRef(null); // brouillon local de l'équipe (useRef, pas useState : setTeamDraft(un tableau) ne mettait jamais réellement à jour l'état sur les appareils testés)
+  const teamBaselineRef=useRef(null); // photo de "team" au moment de l'ouverture du panneau — sert à distinguer, à la sauvegarde, ce qui a vraiment été modifié dans CETTE session de ce qui ne l'a pas été
   const [renderTick,setRenderTick]=useState(0); // incrémenté à chaque modification du brouillon pour forcer le nouveau rendu
   const teamDraft=teamDraftRef.current;
   function setTeamDraft(updaterOrValue){
@@ -1151,8 +1152,9 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
   async function updateTeamTransactional(updater){
     const fb=getFirebase();
     if(!fb){
-      commit({team:updater(team)}); // hors ligne : pas de transaction possible, repli sur le comportement local habituel
-      return;
+      const resultTeam=updater(team);
+      commit({team:resultTeam}); // hors ligne : pas de transaction possible, repli sur le comportement local habituel
+      return resultTeam;
     }
     try{
       const ref=fb.doc(fb.db,'app','state');
@@ -1165,9 +1167,12 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
         tx.update(ref,{'planning.team':resultTeam});
       });
       if(resultTeam)setPlanning(p=>({...(p||DEFAULT_PLANNING),team:resultTeam}));
+      return resultTeam;
     }catch(e){
       console.error('Mise à jour transactionnelle de l\'équipe échouée :',e);
-      commit({team:updater(team)}); // au moins tenter la sauvegarde habituelle plutôt que de perdre le changement
+      const resultTeam=updater(team);
+      commit({team:resultTeam}); // au moins tenter la sauvegarde habituelle plutôt que de perdre le changement
+      return resultTeam;
     }
   }
 
@@ -1421,11 +1426,34 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
     setTimeout(()=>{addMemberBtnRef.current&&addMemberBtnRef.current.scrollIntoView({behavior:'smooth',block:'center'});},50);
   }
   const [teamSaveStatus,setTeamSaveStatus]=useState('idle'); // 'idle' | 'saving' | 'saved' | 'error'
+  // Fusionne le brouillon local sur la version la plus fraîche du serveur : seuls les champs qui
+  // diffèrent réellement entre le brouillon et la baseline (= modifiés dans CETTE session) sont
+  // réappliqués. Tout le reste vient de "freshTeam", pour ne jamais écraser ce qu'un autre appareil
+  // a changé entre-temps sur des membres qu'on n'a pas soi-même touchés.
+  function mergeTeamEdits(freshTeam,baseline,draft){
+    const freshById={};freshTeam.forEach(m=>{freshById[m.id]=m;});
+    const baseById={};baseline.forEach(m=>{baseById[m.id]=m;});
+    const seen={};
+    const result=draft.map(dm=>{
+      seen[dm.id]=true;
+      const base=baseById[dm.id];
+      if(!base)return freshById[dm.id]||dm; // ajouté pendant cette session, n'existait pas à l'ouverture
+      const merged={...(freshById[dm.id]||dm)};
+      Object.keys(dm).forEach(field=>{
+        if(dm[field]!==base[field])merged[field]=dm[field]; // modifié dans cette session -> l'emporte
+      });
+      return merged;
+    });
+    freshTeam.forEach(fm=>{if(!seen[fm.id])result.push(fm);}); // ajouté ailleurs entre-temps
+    return result;
+  }
   async function saveTeamDraft(){
     if(!teamDraft)return;
     setTeamSaveStatus('saving');
     try{
-      await updateTeamTransactional(()=>teamDraft);
+      const baseline=teamBaselineRef.current||team;
+      const result=await updateTeamTransactional(freshTeam=>mergeTeamEdits(freshTeam,baseline,teamDraft));
+      if(result){teamBaselineRef.current=dc(result);setTeamDraft(dc(result));}
       setTeamSaveStatus('saved');
       setTimeout(()=>setTeamSaveStatus('idle'),2000);
     }catch(e){
@@ -1433,13 +1461,15 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
     }
   }
   function cancelTeamDraft(){
-    setTeamDraft(dc(team));
+    const snap=dc(team);
+    teamBaselineRef.current=snap;
+    setTeamDraft(snap);
   }
 
 
 
   async function exportAsImage(){
-    setOpenEditor(null);setManageOpen(false);setTeamDraft(null);setExporting(true);
+    setOpenEditor(null);setManageOpen(false);teamBaselineRef.current=null;setTeamDraft(null);setExporting(true);
     const prevZoom=zoomLevel;
     if(prevZoom!==1){
       setZoomLevel(1);
@@ -1742,7 +1772,7 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
     </div>)}
 
     <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}}>
-      {!readOnly&&<button onClick={()=>setManageOpen(o=>{const next=!o;if(next)setTeamDraft(dc(team));else setTeamDraft(null);return next;})} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Gérer l'équipe</button>}
+      {!readOnly&&<button onClick={()=>setManageOpen(o=>{const next=!o;if(next){const snap=dc(team);teamBaselineRef.current=snap;setTeamDraft(snap);}else{teamBaselineRef.current=null;setTeamDraft(null);}return next;})} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Gérer l'équipe</button>}
       <button onClick={handleSave} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>{exporting?'Génération…':'Sauvegarder'}</button>
       {canArchive&&<button onClick={()=>{setShowArchive(true);loadArchive();}} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Archives</button>}
       {canManageSettings&&<button onClick={()=>setShowSettings(true)} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #d97706',borderRadius:6,cursor:'pointer',background:'#fef3c7',color:'#92400e'}}>Paramètres</button>}
