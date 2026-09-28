@@ -116,7 +116,7 @@ const {useState,useEffect,useLayoutEffect,useRef,useCallback}=React;
 // concrètes (ex. écrasement de données par un ancien mécanisme déjà corrigé ailleurs).
 // APP_VERSION doit être changé à chaque déploiement (ex. horodatage) pour que ce mécanisme
 // détecte la différence.
-const APP_VERSION='2026-09-26T02:30:00Z';
+const APP_VERSION='2026-09-28T12:00:00Z';
 let appVersionCheckInFlight=false;
 async function checkForNewAppVersion(reloadImmediately){
   if(appVersionCheckInFlight)return;
@@ -2120,11 +2120,9 @@ function fmtDateFR(d){return d.toLocaleDateString('fr-FR',{day:'2-digit',month:'
 
 // --- Bascule automatique de semaine Carcasse (lundi 3h) ---
 // Les 7 services fixes ont chacun une case "suivante" en miroir (voir ALL_POSSIBLE). Au passage
-// du lundi réel, les données de chaque case "suivante" remplacent celles de la semaine en cours,
-// et la case "suivante" repart sur le gabarit par défaut. Si aucune case "suivante" n'existait pour
-// un service donné, la semaine en cours repart quand même à zéro (jamais de données périmées
-// conservées). Les extras ponctuels (Mardi Déjeuner, Dimanche Déj/Dîner) n'ont pas de case
-// "suivante" et ne sont jamais concernés par ce mécanisme.
+// du lundi réel, chaque case est réalignée sur sa date calendaire (voir "Alignement des cases
+// Carcasse sur les dates calendaires" plus bas) : en pratique la case "suivante" devient la case
+// de la semaine en cours, et la case "suivante" repart sur le gabarit par défaut.
 const CARCASSE_WEEK_PAIRS=[['mar-d','mar-d-next'],['mer-d','mer-d-next'],['jeu-d','jeu-d-next'],['ven-dj','ven-dj-next'],['ven-d','ven-d-next'],['sam-dj','sam-dj-next'],['sam-d','sam-d-next']];
 // Les 7 services "semaine suivante" doivent toujours exister par défaut (miroir exact des 7 services
 // de base), pour que l'anticipation à 15 jours soit prête sans jamais avoir à les rajouter à la main.
@@ -2181,6 +2179,7 @@ async function ensureNextWeekServices(){
           patch['manual.'+def.id]={};
         }
         patch['compos.'+def.id]=buildEmptyCompo(); // la composition (personnel par table) n'est pas dans l'archive Carcasse : elle reste vide même si les tables sont restaurées
+        patch['slotDates.'+def.id]=dateKey(svcRealDate(def));
       });
       patch['services']=newServices;
       tx.update(ref,patch);
@@ -2188,53 +2187,207 @@ async function ensureNextWeekServices(){
   }catch(e){console.error('Auto-restauration des services "semaine suivante" échouée :',e);}
 }
 
+// --- Alignement des cases Carcasse sur les dates calendaires ---
+// Chaque case (7 de base + 7 "suivante") représente une date réelle qui change chaque lundi
+// (voir svcRealDate). Pour ne jamais afficher sous une date les données d'une autre date :
+//  - chaque écriture d'une case enregistre sa date dans slotDates.<id> (voir save())
+//  - au changement de semaine (et en vérification de rattrapage), chaque case est réalignée : ses
+//    données viennent de la case qui détient cette date (en pratique la case "suivante" de la
+//    semaine précédente), à défaut de l'archive (documents carcasse_archive nommés date_dj / date_d),
+//    à défaut elle repart vide
+//  - les données d'une case sur le point d'être écrasée sont d'abord archivées si l'archive n'a
+//    rien pour leur date, pour ne rien perdre
+// Pour les cases créées avant ce mécanisme (aucune date enregistrée), la date est déduite en
+// comparant leurs tables à l'archive de la semaine courante puis de la semaine précédente.
+// Les extras ponctuels (Mardi Déjeuner, Dimanche Déj/Dîner) ne sont pas concernés.
+const CARCASSE_ALIGNED_IDS=new Set(CARCASSE_WEEK_PAIRS.flat());
+function archDocId(dateStr,isLunch){return dateStr+'_'+(isLunch?'dj':'d');}
+function addDaysISO(dateStr,n){const d=new Date(dateStr+'T12:00:00');d.setDate(d.getDate()+n);return dateKey(d);}
+function stableStr(o){
+  if(o===null||o===undefined)return 'null';
+  if(typeof o!=='object')return JSON.stringify(o);
+  if(Array.isArray(o))return '['+o.map(stableStr).join(',')+']';
+  return '{'+Object.keys(o).sort().map(k=>JSON.stringify(k)+':'+stableStr(o[k])).join(',')+'}';
+}
+function slotHasCovers(td){return !!td&&Object.values(td).some(v=>v&&v.covers>0);}
+// Date réelle d'une case, même si l'ancien enregistrement n'a pas le drapeau nextWeek.
+function slotRealDate(s){return svcRealDate({id:s.id,nextWeek:!!(s.nextWeek||String(s.id).endsWith('-next'))});}
+function carcasseSlotInfos(services){
+  const out=[];
+  (services||[]).forEach(s=>{
+    if(!CARCASSE_ALIGNED_IDS.has(s.id))return;
+    const d=slotRealDate(s);
+    if(!d)return;
+    out.push({id:s.id,label:s.label,isLunch:s.id.includes('-dj'),E:dateKey(d)});
+  });
+  return out;
+}
+function carcasseSlotsNeedRealign(p){
+  const stamps=p.slotDates||{};
+  return carcasseSlotInfos(p.services).some(s=>stamps[s.id]!==s.E);
+}
+// Fonction pure : calcule ce qu'il faut écrire, sans rien lire ni écrire elle-même.
+// arch = {idDocArchive: donnéesOuNull} pour tous les documents d'archive utiles.
+function planCarcasseRealign(data,arch){
+  const plan={changed:false,patch:{},archiveWrites:[]};
+  const infos=carcasseSlotInfos(data.services);
+  if(infos.length===0)return plan;
+  const stamps=data.slotDates||{};
+  const ds=data.defaultSettings||{};
+  const tables=data.tables||{},manual=data.manual||{},terr=data.terrasseMode||{},gp=data.gpData||{},compos=data.compos||{};
+  const emptyTables=id=>buildDefault([{id}],ds.defSalle,ds.defTerrasse)[id];
+  const RESTORE='__restore__';
+  // 1. À quelle date appartiennent réellement les données de chaque case ?
+  const eff={};
+  infos.forEach(s=>{
+    if(stamps[s.id]){eff[s.id]={date:stamps[s.id],explicit:true};return;}
+    let date=s.E;
+    const live=tables[s.id];
+    const aE=arch[archDocId(s.E,s.isLunch)];
+    if(!slotHasCovers(live)){
+      if(aE&&slotHasCovers(aE.tableData))date=RESTORE; // case vide alors que l'archive a des données pour sa date
+    }else{
+      const prev=addDaysISO(s.E,-7);
+      const aP=arch[archDocId(prev,s.isLunch)];
+      const ls=stableStr(live);
+      const matchE=!!(aE&&aE.tableData&&stableStr(aE.tableData)===ls);
+      const matchP=!!(aP&&aP.tableData&&stableStr(aP.tableData)===ls);
+      if(!matchE&&matchP)date=prev; // identique à la sauvegarde de la semaine précédente : données périmées
+    }
+    eff[s.id]={date,explicit:false};
+  });
+  // 2. Quelle case détient les données de quelle date (déjeuner et dîner séparés)
+  const holder={};
+  infos.forEach(s=>{if(eff[s.id].date===s.E)holder[archDocId(s.E,s.isLunch)]=s.id;});
+  infos.forEach(s=>{
+    const e=eff[s.id];
+    if(e.date===s.E||e.date===RESTORE)return;
+    const k=archDocId(e.date,s.isLunch);
+    if(!holder[k])holder[k]=s.id;
+  });
+  // 3. Chaque case reçoit les données de SA date
+  // Repérer d'abord les cases dont les données vont être déplacées ailleurs (elles devront être vidées).
+  const usedAsSrc=new Set();
+  infos.forEach(t=>{
+    if(eff[t.id].date===t.E)return;
+    const srcId=holder[archDocId(t.E,t.isLunch)];
+    if(srcId&&srcId!==t.id)usedAsSrc.add(srcId);
+  });
+  const replaced=new Set();
+  infos.forEach(t=>{
+    const e=eff[t.id];
+    if(e.date===t.E){
+      if(stamps[t.id]!==t.E){plan.patch['slotDates.'+t.id]=t.E;plan.changed=true;}
+      return;
+    }
+    const key=archDocId(t.E,t.isLunch);
+    const srcId=holder[key];
+    let nd=null;
+    if(srcId&&srcId!==t.id){
+      nd={tables:tables[srcId],manual:manual[srcId],terr:terr[srcId],gp:gp[srcId],compos:compos[srcId]};
+    }else if(arch[key]){
+      const a=arch[key];
+      nd={tables:a.tableData,manual:{pax:a.pax??null,tables:a.tablesCount??null},terr:a.terrasseMode,gp:a.gp,compos:null};
+    }else if(e.explicit||usedAsSrc.has(t.id)){
+      nd={tables:null,manual:null,terr:false,gp:null,compos:null}; // aucune donnée pour cette date : case vide
+    }
+    if(!nd){ // date déduite (ancien format) sans remplaçant : on ne détruit rien, on estampille seulement
+      plan.patch['slotDates.'+t.id]=t.E;plan.changed=true;return;
+    }
+    replaced.add(t.id);
+    plan.patch['tables.'+t.id]=nd.tables||emptyTables(t.id);
+    plan.patch['terrasseMode.'+t.id]=!!nd.terr;
+    plan.patch['manual.'+t.id]=nd.manual||{};
+    plan.patch['gpData.'+t.id]=nd.gp||null;
+    plan.patch['compos.'+t.id]=nd.compos||buildEmptyCompo();
+    plan.patch['slotDates.'+t.id]=t.E;
+    plan.changed=true;
+  });
+  // 4. Protéger les données qui vont être écrasées et qui ne vont nulle part ailleurs
+  replaced.forEach(uId=>{
+    if(usedAsSrc.has(uId))return;
+    const e=eff[uId];
+    if(e.date===RESTORE)return;
+    const td=tables[uId];
+    if(!slotHasCovers(td))return;
+    const u=infos.find(x=>x.id===uId);
+    const k=archDocId(e.date,u.isLunch);
+    if(arch[k]!==null)return; // déjà présent dans l'archive, ou non lu : on n'écrase jamais
+    const man=manual[uId]||{};
+    plan.archiveWrites.push({id:k,data:{svcId:uId,svcLabel:u.label,date:e.date,pax:man.pax??null,tablesCount:man.tables??null,tableData:td,terrasseMode:!!terr[uId],gp:gp[uId]||null,savedBy:'realignement-auto',savedAt:new Date().toISOString()}});
+  });
+  return plan;
+}
+// Lit (dans la transaction) l'archive utile puis calcule le plan. Toutes les lectures avant toute écriture.
+async function planRealignInTx(tx,fb,data){
+  const infos=carcasseSlotInfos(data.services);
+  const stamps=data.slotDates||{};
+  const ids=new Set();
+  infos.forEach(s=>{
+    ids.add(archDocId(s.E,s.isLunch));
+    ids.add(archDocId(addDaysISO(s.E,-7),s.isLunch));
+    if(stamps[s.id])ids.add(archDocId(stamps[s.id],s.isLunch));
+  });
+  const idList=[...ids];
+  const snaps=await Promise.all(idList.map(id=>tx.get(fb.doc(fb.db,'carcasse_archive',id))));
+  const arch={};
+  idList.forEach((id,i)=>{arch[id]=snaps[i].exists()?snaps[i].data():null;});
+  return planCarcasseRealign(data,arch);
+}
+async function realignCarcasseSlots(){
+  const fb=getFirebase();if(!fb)return false;
+  let did=false;
+  try{
+    await fb.runTransaction(fb.db,async(tx)=>{
+      const ref=fb.doc(fb.db,'app','state');
+      const snap=await tx.get(ref);
+      const data=snap.exists()?snap.data():{};
+      const plan=await planRealignInTx(tx,fb,data);
+      if(!plan.changed)return;
+      plan.archiveWrites.forEach(w=>tx.set(fb.doc(fb.db,'carcasse_archive',w.id),w.data));
+      tx.update(ref,plan.patch);
+      did=true;
+    });
+  }catch(e){console.error('Réalignement des services Carcasse échoué :',e);}
+  return did;
+}
+// Bascule du lundi 3h : même mécanisme, plus le repère de semaine, dans la même transaction.
+// Retourne true si cette exécution a traité la bascule.
 async function maybeRolloverCarcasseWeek(latestData){
-  const fb=getFirebase();if(!fb)return;
+  const fb=getFirebase();if(!fb)return false;
   const nowMonday=getMondayISO(businessNow());
-  if(latestData.carcasseRolloverMonday===nowMonday)return; // déjà fait pour cette semaine, rien à vérifier (évite une transaction inutile à chaque snapshot)
+  if(latestData.carcasseRolloverMonday===nowMonday)return false; // déjà fait pour cette semaine (évite une transaction inutile à chaque snapshot)
+  let did=false;
   try{
     await fb.runTransaction(fb.db,async(tx)=>{
       const ref=fb.doc(fb.db,'app','state');
       const snap=await tx.get(ref);
       const data=snap.exists()?snap.data():{};
       if(data.carcasseRolloverMonday===nowMonday)return; // un autre appareil a déjà traité la bascule entre-temps
-      if(data.carcasseRolloverMonday===undefined){
-        // Premier passage de ce mécanisme : on adopte le lundi courant comme référence sans rien
-        // transférer, pour éviter une bascule surprise le jour du déploiement (quel que soit le jour réel).
-        tx.update(ref,{carcasseRolloverMonday:nowMonday});
-        return;
-      }
-      const svcList=data.services||[];
-      const ds=data.defaultSettings||{};
-      const newTables={...(data.tables||{})};
-      const newManual={...(data.manual||{})};
-      const newTerrasse={...(data.terrasseMode||{})};
-      const newGp={...(data.gpData||{})};
-      const newCompos={...(data.compos||{})};
-      CARCASSE_WEEK_PAIRS.forEach(([baseId,nextId])=>{
-        const nextExists=svcList.some(s=>s.id===nextId);
-        if(nextExists){
-          newTables[baseId]=dc(newTables[nextId]||buildDefault([{id:nextId}],ds.defSalle,ds.defTerrasse)[nextId]);
-          newManual[baseId]=dc(newManual[nextId]||{});
-          newTerrasse[baseId]=!!newTerrasse[nextId];
-          newGp[baseId]=newGp[nextId]?dc(newGp[nextId]):null;
-          newCompos[baseId]=newCompos[nextId]?dc(newCompos[nextId]):buildEmptyCompo();
-          newTables[nextId]=buildDefault([{id:nextId}],ds.defSalle,ds.defTerrasse)[nextId];
-          newManual[nextId]={};
-          newTerrasse[nextId]=false;
-          newGp[nextId]=null;
-          newCompos[nextId]=buildEmptyCompo();
-        }else{
-          newTables[baseId]=buildDefault([{id:baseId}],ds.defSalle,ds.defTerrasse)[baseId];
-          newManual[baseId]={};
-          newTerrasse[baseId]=false;
-          newGp[baseId]=null;
-          newCompos[baseId]=buildEmptyCompo();
-        }
-      });
-      tx.update(ref,{tables:newTables,manual:newManual,terrasseMode:newTerrasse,gpData:newGp,compos:newCompos,carcasseRolloverMonday:nowMonday});
+      const plan=await planRealignInTx(tx,fb,data);
+      plan.archiveWrites.forEach(w=>tx.set(fb.doc(fb.db,'carcasse_archive',w.id),w.data));
+      tx.update(ref,{...plan.patch,carcasseRolloverMonday:nowMonday});
+      did=true;
     });
   }catch(e){console.error('Bascule automatique Carcasse échouée :',e);}
+  return did;
+}
+// Point d'entrée unique, dans un ordre garanti : bascule, puis rattrapage, puis recréation des
+// cases "semaine suivante" manquantes (elles se chargent depuis l'archive de leur date).
+let carcasseMaintenanceRunning=false;
+let lastCarcasseRealignAt=0;
+async function runCarcasseMaintenance(p){
+  if(carcasseMaintenanceRunning)return;
+  carcasseMaintenanceRunning=true;
+  try{
+    const rolled=await maybeRolloverCarcasseWeek(p);
+    if(!rolled&&carcasseSlotsNeedRealign(p)&&Date.now()-lastCarcasseRealignAt>2*60*1000){
+      lastCarcasseRealignAt=Date.now();
+      await realignCarcasseSlots();
+    }
+    await ensureNextWeekServices();
+  }catch(e){console.error('Maintenance Carcasse :',e);}
+  carcasseMaintenanceRunning=false;
 }
 // Clé locale (et non UTC) : évite le décalage d'un jour près de minuit, cohérent avec fmtDateFR.
 function dateKey(d){
@@ -4740,7 +4893,7 @@ function App(){
   const planningPendingPatchRef=useRef({});
   const unsubscribeRef=useRef(null);
   const hasLoadedStateRef=useRef(false); // true seulement après la 1ère réception des vraies données Firestore (évite qu'un effet sauvegarde des valeurs par défaut avant leur arrivée)
-  const carcasseRolloverMondayRef=useRef(undefined); // dernier repère de bascule Carcasse connu, mis à jour par le listener Firestore
+  const carcasseLatestStateRef=useRef(null); // dernier état Firestore reçu, pour le filet de sécurité périodique de la maintenance Carcasse
   const roleLinge=isLinge(userEmail);
 
   // Auth listener
@@ -4768,7 +4921,6 @@ function App(){
       if(p.terrasseMode)setTerrasseMode(p.terrasseMode);
       if(p.manual)setManual(p.manual);
       if(p.compos)setCompos(p.compos);
-      ensureNextWeekServices(); // garantit en permanence la présence des 7 services "semaine suivante", sans action manuelle — relit l'état le plus frais à chaque vérification (au plus 1x/minute)
       if(p.gpData)setGpData(p.gpData);
       if(p.team){
         const merged=p.team.map(saved=>{const ini=INITIAL_TEAM.find(m=>m.id===saved.id);return{...saved,gender:saved.gender||(ini?.gender??'m')};});
@@ -4788,8 +4940,8 @@ function App(){
       if(p.menuFicheUrl!==undefined)setMenuFicheUrl(p.menuFicheUrl);
       hasLoadedStateRef.current=true; // les données réelles sont arrivées : les effets qui pourraient sauvegarder (ex. synchro Planning->Compo) peuvent désormais le faire sans risque d'écraser avec des valeurs par défaut
       setSyncErrorDetail('');
-      carcasseRolloverMondayRef.current=p.carcasseRolloverMonday;
-      maybeRolloverCarcasseWeek(p); // vérifie si le lundi réel a changé depuis la dernière bascule ; transaction atomique, ne fait rien si déjà à jour
+      carcasseLatestStateRef.current=p;
+      runCarcasseMaintenance(p); // bascule du lundi, rattrapage des dates, recréation des cases suivantes manquantes : dans cet ordre, transactions atomiques, sans effet si tout est déjà à jour
     },(err)=>{console.error('Firestore error',err);setSyncErrorDetail((err&&(err.code||err.message))||'Erreur inconnue (listener)');setSyncStatus('error');});
     unsubscribeRef.current=unsub;
     return()=>{if(unsubscribeRef.current)unsubscribeRef.current();};
@@ -4800,7 +4952,7 @@ function App(){
   // passage de 3h, cette vérification périodique (toutes les 10 min) rattrape le coup.
   useEffect(()=>{
     if(authState!=='logged-in')return;
-    const id=setInterval(()=>{maybeRolloverCarcasseWeek({carcasseRolloverMonday:carcasseRolloverMondayRef.current});},10*60*1000);
+    const id=setInterval(()=>{if(carcasseLatestStateRef.current)runCarcasseMaintenance(carcasseLatestStateRef.current);},10*60*1000);
     return()=>clearInterval(id);
   },[authState]);
 
@@ -4921,6 +5073,13 @@ function App(){
           ['manual.'+curSvc]: man[curSvc]||null,
           ['compos.'+curSvc]: cps[curSvc]||null,
         };
+        // Date calendaire pour laquelle cette case vient d'être renseignée : permet à la bascule
+        // hebdomadaire de savoir à quelle date appartiennent ses données (voir planCarcasseRealign).
+        if(CARCASSE_ALIGNED_IDS.has(curSvc)){
+          const sObj=svcList.find(x=>x.id===curSvc);
+          const sd=sObj?slotRealDate(sObj):null;
+          if(sd)patch['slotDates.'+curSvc]=dateKey(sd);
+        }
         await fb.updateDoc(ref,patch);
         delete saveTimerRef.current[curSvc];
         setSyncErrorDetail('');
@@ -5157,16 +5316,24 @@ function App(){
   }
 
   function loadCarcasseSnapshot(entry){
-    const newTables=dc(tables);newTables[currentService]=dc(entry.tableData||{});
+    // La sauvegarde est chargée dans le service dont la date réelle est celle de la sauvegarde (même
+    // déjeuner / dîner), jamais dans le service simplement affiché à l'écran : sinon on pouvait
+    // écraser un jour avec les données d'un autre.
+    const entryLunch=String(entry.svcId||'').includes('-dj');
+    const target=services.find(s=>{const d=slotRealDate(s);return d&&dateKey(d)===entry.date&&s.id.includes('-dj')===entryLunch;});
+    if(!target){window.alert('Aucun service actif pour la date du '+entry.date+'. Chargement annulé.');return;}
+    const tid=target.id;
+    const newTables=dc(tables);newTables[tid]=dc(entry.tableData||{});
     setTables(newTables);
-    const newTerrasse={...terrasseMode,[currentService]:!!entry.terrasseMode};
+    const newTerrasse={...terrasseMode,[tid]:!!entry.terrasseMode};
     setTerrasseMode(newTerrasse);
-    const newManual={...manual,[currentService]:{pax:entry.pax??null,tables:entry.tablesCount??null}};
+    const newManual={...manual,[tid]:{pax:entry.pax??null,tables:entry.tablesCount??null}};
     setManual(newManual);
-    save(services,newTables,newTerrasse,newManual,currentService,compos,team);
-    const ov4=checkPlateauOverflow(newTables[currentService]);if(ov4.length>0)setPlateauAlert(ov4);
+    save(services,newTables,newTerrasse,newManual,tid,compos,team);
+    const ov4=checkPlateauOverflow(newTables[tid]);if(ov4.length>0)setPlateauAlert(ov4);
     const restoredGp=entry.gp||{active:false,tables:[],extra:[]}; // archive plus ancienne sans donnée GP : désactivé par défaut
-    updateGpForService(currentService,restoredGp);
+    updateGpForService(tid,restoredGp);
+    setCurrentService(tid);
     setShowCarcasseArchive(false);
   }
 
@@ -5346,7 +5513,7 @@ function App(){
           <button onClick={()=>setShowCarcasseArchive(false)} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#888'}}>×</button>
         </div>
         <div style={{fontSize:10,color:'#aaa',marginBottom:4}}>Suppression automatique après 2 semaines.</div>
-        <div style={{fontSize:11,color:'#555',marginBottom:12}}>{'« Charger » applique la sauvegarde dans : '}<b>{services.find(s=>s.id===currentService)?.label??''}</b></div>
+        <div style={{fontSize:11,color:'#555',marginBottom:12}}>{'« Charger » applique la sauvegarde dans le service qui a la même date (déjeuner ou dîner).'}</div>
         {carcasseArchiveLoading&&<div style={{textAlign:'center',color:'#aaa',fontSize:13,padding:'20px 0'}}>Chargement…</div>}
         {!carcasseArchiveLoading&&carcasseArchive.length===0&&<div style={{textAlign:'center',color:'#aaa',fontSize:13,padding:'20px 0'}}>Aucune sauvegarde.</div>}
         {!carcasseArchiveLoading&&(()=>{
