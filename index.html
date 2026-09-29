@@ -116,7 +116,7 @@ const {useState,useEffect,useLayoutEffect,useRef,useCallback}=React;
 // concrètes (ex. écrasement de données par un ancien mécanisme déjà corrigé ailleurs).
 // APP_VERSION doit être changé à chaque déploiement (ex. horodatage) pour que ce mécanisme
 // détecte la différence.
-const APP_VERSION='2026-09-29T09:00:00Z';
+const APP_VERSION='2026-09-29T09:20:00Z';
 let appVersionCheckInFlight=false;
 async function checkForNewAppVersion(reloadImmediately){
   if(appVersionCheckInFlight)return;
@@ -3609,10 +3609,21 @@ function CarteFromageView({userEmail}){
     p.ly=Math.max(16,Math.min(592,p.ly));
   });
 
+  const outOfFranceCheeses=cheeses.filter(c=>c.dept==='ETR');
+
   return(<div style={{display:'flex',flexDirection:'column',gap:10}}>
     <div style={{display:'flex',justifyContent:'flex-end'}}>
       <button onClick={()=>setShowAllLabels(!showAllLabels)} style={{padding:'6px 12px',fontSize:12,fontWeight:500,border:'0.5px solid #ccc',borderRadius:6,background:showAllLabels?'#dbeafe':'#fff',color:showAllLabels?'#1e40af':'#555',cursor:'pointer'}}>{showAllLabels?'Masquer tous les fromages':'Afficher tous les fromages'}</button>
     </div>
+    {outOfFranceCheeses.length>0&&(<div style={{background:'#fff',borderRadius:10,border:'0.5px solid #d4d2c8',padding:'10px 12px',display:'flex',flexDirection:'column',gap:8}}>
+      <div style={{fontSize:11,fontWeight:600,color:'#888',textTransform:'uppercase',letterSpacing:'.05em'}}>Hors France</div>
+      <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+        {outOfFranceCheeses.map(c=>{
+          const isH=highlighted===c.id;
+          return <button key={c.id} onClick={()=>selectCheese(c)} style={{padding:'6px 12px',fontSize:12,fontWeight:isH?700:500,border:'1px solid '+(isH?'#D85A30':'#378ADD'),borderRadius:20,background:isH?'#fdecea':'#eef4fc',color:isH?'#D85A30':'#185FA5',cursor:'pointer'}}>{c.nom}</button>;
+        })}
+      </div>
+    </div>)}
     <div style={{background:'#fff',borderRadius:10,border:'0.5px solid #d4d2c8',overflow:'hidden'}}>
       <ZoomableMap><FranceOutlineSVG>
         {cheeses.map(c=>{
