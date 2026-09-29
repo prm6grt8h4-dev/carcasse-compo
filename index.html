@@ -116,7 +116,7 @@ const {useState,useEffect,useLayoutEffect,useRef,useCallback}=React;
 // concrètes (ex. écrasement de données par un ancien mécanisme déjà corrigé ailleurs).
 // APP_VERSION doit être changé à chaque déploiement (ex. horodatage) pour que ce mécanisme
 // détecte la différence.
-const APP_VERSION='2026-09-28T12:00:00Z';
+const APP_VERSION='2026-09-28T13:00:00Z';
 let appVersionCheckInFlight=false;
 async function checkForNewAppVersion(reloadImmediately){
   if(appVersionCheckInFlight)return;
@@ -5316,13 +5316,11 @@ function App(){
   }
 
   function loadCarcasseSnapshot(entry){
-    // La sauvegarde est chargée dans le service dont la date réelle est celle de la sauvegarde (même
-    // déjeuner / dîner), jamais dans le service simplement affiché à l'écran : sinon on pouvait
-    // écraser un jour avec les données d'un autre.
-    const entryLunch=String(entry.svcId||'').includes('-dj');
-    const target=services.find(s=>{const d=slotRealDate(s);return d&&dateKey(d)===entry.date&&s.id.includes('-dj')===entryLunch;});
-    if(!target){window.alert('Aucun service actif pour la date du '+entry.date+'. Chargement annulé.');return;}
-    const tid=target.id;
+    // "Charger" sert à recopier une ancienne sauvegarde comme point de départ pour le service
+    // actuellement sélectionné, quel que soit le jour d'origine de cette sauvegarde. La date propre
+    // à ce service (slotDates) n'est pas affectée par le contenu copié : elle continue de refléter
+    // la vraie date calendaire de ce service, donc l'alignement automatique reste cohérent ensuite.
+    const tid=currentService;
     const newTables=dc(tables);newTables[tid]=dc(entry.tableData||{});
     setTables(newTables);
     const newTerrasse={...terrasseMode,[tid]:!!entry.terrasseMode};
@@ -5333,7 +5331,6 @@ function App(){
     const ov4=checkPlateauOverflow(newTables[tid]);if(ov4.length>0)setPlateauAlert(ov4);
     const restoredGp=entry.gp||{active:false,tables:[],extra:[]}; // archive plus ancienne sans donnée GP : désactivé par défaut
     updateGpForService(tid,restoredGp);
-    setCurrentService(tid);
     setShowCarcasseArchive(false);
   }
 
@@ -5513,7 +5510,7 @@ function App(){
           <button onClick={()=>setShowCarcasseArchive(false)} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#888'}}>×</button>
         </div>
         <div style={{fontSize:10,color:'#aaa',marginBottom:4}}>Suppression automatique après 2 semaines.</div>
-        <div style={{fontSize:11,color:'#555',marginBottom:12}}>{'« Charger » applique la sauvegarde dans le service qui a la même date (déjeuner ou dîner).'}</div>
+        <div style={{fontSize:11,color:'#555',marginBottom:12}}>{'« Charger » applique la sauvegarde dans : '}<b>{services.find(s=>s.id===currentService)?.label??''}</b></div>
         {carcasseArchiveLoading&&<div style={{textAlign:'center',color:'#aaa',fontSize:13,padding:'20px 0'}}>Chargement…</div>}
         {!carcasseArchiveLoading&&carcasseArchive.length===0&&<div style={{textAlign:'center',color:'#aaa',fontSize:13,padding:'20px 0'}}>Aucune sauvegarde.</div>}
         {!carcasseArchiveLoading&&(()=>{
