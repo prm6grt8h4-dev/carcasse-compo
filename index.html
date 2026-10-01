@@ -34,7 +34,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" crossorigin="anonymous"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
 <!-- Firebase SDK -->
 <script type="module" id="firebase-init">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -117,8 +116,7 @@ const {useState,useEffect,useLayoutEffect,useRef,useCallback}=React;
 // concrètes (ex. écrasement de données par un ancien mécanisme déjà corrigé ailleurs).
 // APP_VERSION doit être changé à chaque déploiement (ex. horodatage) pour que ce mécanisme
 // détecte la différence.
-const APP_VERSION='2026-10-01T11:30:00Z';
-if(window.pdfjsLib)window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+const APP_VERSION='2026-10-01T12:00:00Z';
 let appVersionCheckInFlight=false;
 async function checkForNewAppVersion(reloadImmediately){
   if(appVersionCheckInFlight)return;
@@ -4598,67 +4596,13 @@ const EXPLICATION_PDF_MAX_BYTES=8*1024*1024; // 8 Mo brut (garde une marge au-de
 function ExplicationsView({menuFicheUrl,saveMenuFicheUrl,roleLinge,explicationPdfMeta,uploadExplicationPdf,deleteExplicationPdf,fetchExplicationPdfBytes}){
   const canEdit=!roleLinge;
   const fileInputRef=useRef(null);
-  const containerRef=useRef(null);
-  const scrollWrapRef=useRef(null);
-  const baseWidthRef=useRef(0);
-  const pdfDocRef=useRef(null); // document pdf.js déjà chargé, pour redessiner sans re-télécharger
-  const canvasListRef=useRef([]); // [{canvas, page}] pour redessiner chaque page en net au bon niveau de zoom
-  const lastHiResZoomRef=useRef(1);
-  const hiResTimerRef=useRef(null);
-  const [pdfZoom,setPdfZoom]=useState(1);
-  const pdfPinchRef=useRef({active:false,startDist:0,startZoom:1});
   const [status,setStatus]=useState(''); // message d'état pendant l'envoi
   const [progress,setProgress]=useState(0);
-  const [loadingView,setLoadingView]=useState(false);
-  const [viewError,setViewError]=useState('');
-  const [pdfKey,setPdfKey]=useState(0); // force le rendu à se relancer après un remplacement
+  const [opening,setOpening]=useState(false);
+  const [openError,setOpenError]=useState('');
+  const objectUrlRef=useRef(null); // révoqué à la fermeture/au démontage pour libérer la mémoire
 
-  function onPdfTouchStart(e){
-    if(e.touches.length===2){
-      e.preventDefault();
-      const dx=e.touches[1].clientX-e.touches[0].clientX,dy=e.touches[1].clientY-e.touches[0].clientY;
-      pdfPinchRef.current={active:true,startDist:Math.sqrt(dx*dx+dy*dy),startZoom:pdfZoom};
-    }
-  }
-  function onPdfTouchMove(e){
-    if(pdfPinchRef.current.active&&e.touches.length===2){
-      e.preventDefault();
-      const dx=e.touches[1].clientX-e.touches[0].clientX,dy=e.touches[1].clientY-e.touches[0].clientY;
-      const dist=Math.sqrt(dx*dx+dy*dy);
-      const next=pdfPinchRef.current.startZoom*(dist/pdfPinchRef.current.startDist);
-      setPdfZoom(Math.max(1,Math.min(2.5,Math.round(next*100)/100)));
-    }
-  }
-  async function renderPdfHiRes(zoom){
-    const pages=canvasListRef.current;
-    if(!pages.length)return;
-    const sharpness=Math.min(window.devicePixelRatio||2,3); // marge de netteté au-dessus de la densité d'écran réelle
-    const cssWidth=baseWidthRef.current*zoom;
-    for(const entry of pages){
-      const base=entry.page.getViewport({scale:1});
-      const scale=(cssWidth/base.width)*sharpness;
-      const viewport=entry.page.getViewport({scale});
-      entry.canvas.width=viewport.width;entry.canvas.height=viewport.height;
-      try{await entry.page.render({canvasContext:entry.canvas.getContext('2d'),viewport}).promise;}catch(e){/* un nouveau zoom a pu interrompre ce rendu, rien à faire */}
-    }
-    lastHiResZoomRef.current=zoom;
-  }
-  function onPdfTouchEnd(e){
-    if(e.touches.length<2){
-      pdfPinchRef.current.active=false;
-      const z=pdfZoom;
-      if(hiResTimerRef.current)clearTimeout(hiResTimerRef.current);
-      // Petite pause après la fin du pincement : laisse le temps à un deuxième pincement d'arriver
-      // plutôt que de redessiner à chaque micro-relâchement des doigts.
-      hiResTimerRef.current=setTimeout(()=>{if(Math.abs(z-lastHiResZoomRef.current)>0.05)renderPdfHiRes(z);},150);
-    }
-  }
-  // Applique le zoom en changeant la largeur réelle du conteneur (pas un simple agrandissement
-  // visuel) : le défilement natif à un doigt continue de fonctionner pour se déplacer dans la page
-  // zoomée, comme pour le tableau du Planning.
-  useEffect(()=>{
-    if(containerRef.current&&baseWidthRef.current)containerRef.current.style.width=(baseWidthRef.current*pdfZoom)+'px';
-  },[pdfZoom]);
+  useEffect(()=>()=>{if(objectUrlRef.current)URL.revokeObjectURL(objectUrlRef.current);},[]);
 
   async function handleFile(e){
     const file=e.target.files&&e.target.files[0];
@@ -4675,7 +4619,7 @@ function ExplicationsView({menuFicheUrl,saveMenuFicheUrl,roleLinge,explicationPd
     setStatus('Envoi en cours…');setProgress(0);
     try{
       await uploadExplicationPdf(file,pct=>{setProgress(pct);});
-      setStatus('');setPdfKey(k=>k+1);
+      setStatus('');
     }catch(err){
       console.error(err);
       setStatus('');
@@ -4686,51 +4630,24 @@ function ExplicationsView({menuFicheUrl,saveMenuFicheUrl,roleLinge,explicationPd
     if(!window.confirm('Retirer ce PDF ? Il faudra en renvoyer un pour que les explications réapparaissent.'))return;
     await deleteExplicationPdf();
   }
-
-  useEffect(()=>{
-    if(!explicationPdfMeta||!explicationPdfMeta.chunks){setLoadingView(false);return;}
-    let cancelled=false;
-    setLoadingView(true);setViewError('');
-    (async()=>{
-      try{
-        const bytes=await fetchExplicationPdfBytes(explicationPdfMeta);
-        if(cancelled)return;
-        if(!window.pdfjsLib){setViewError('Le lecteur PDF n\'a pas pu se charger (vérifie la connexion puis recharge la page).');setLoadingView(false);return;}
-        const pdf=await window.pdfjsLib.getDocument({data:bytes}).promise;
-        if(cancelled)return;
-        pdfDocRef.current=pdf;
-        canvasListRef.current=[];
-        lastHiResZoomRef.current=1;
-        const holder=containerRef.current;
-        if(!holder)return;
-        holder.innerHTML='';
-        setPdfZoom(1);
-        const targetWidth=Math.min(scrollWrapRef.current?scrollWrapRef.current.clientWidth:(holder.clientWidth||700),1000);
-        baseWidthRef.current=targetWidth;
-        holder.style.width=targetWidth+'px';
-        const RENDER_MULTIPLIER=4; // résolution native ≈ 4x la largeur affichée à zoom x1 ; au-delà, le redessin net prend le relais à la fin du pincement
-        for(let n=1;n<=pdf.numPages;n++){
-          const page=await pdf.getPage(n);
-          if(cancelled)return;
-          const base=page.getViewport({scale:1});
-          const scale=(targetWidth/base.width)*RENDER_MULTIPLIER;
-          const viewport=page.getViewport({scale});
-          const canvas=document.createElement('canvas');
-          canvas.width=viewport.width;canvas.height=viewport.height;
-          canvas.style.width='100%';canvas.style.display='block';
-          canvas.style.marginBottom='10px';canvas.style.boxShadow='0 1px 4px rgba(0,0,0,.15)';canvas.style.borderRadius='4px';
-          holder.appendChild(canvas);
-          await page.render({canvasContext:canvas.getContext('2d'),viewport}).promise;
-          canvasListRef.current.push({canvas,page});
-        }
-        if(!cancelled)setLoadingView(false);
-      }catch(err){
-        console.error(err);
-        if(!cancelled){setViewError('Impossible d\'afficher ce PDF.');setLoadingView(false);}
-      }
-    })();
-    return ()=>{cancelled=true;};
-  },[explicationPdfMeta,pdfKey]);
+  // Ouvre le PDF dans le visualisateur natif de l'appareil (comme le faisait le lien GitHub) plutôt
+  // que de le redessiner nous-mêmes : un zoom/dézoom répété sur un canvas fait planter Safari iOS en
+  // mémoire. Ici, aucun rendu maison, aucun risque de plantage, zoom natif fluide.
+  async function handleOpen(){
+    setOpening(true);setOpenError('');
+    try{
+      const bytes=await fetchExplicationPdfBytes(explicationPdfMeta);
+      const blob=new Blob([bytes],{type:'application/pdf'});
+      if(objectUrlRef.current)URL.revokeObjectURL(objectUrlRef.current);
+      const url=URL.createObjectURL(blob);
+      objectUrlRef.current=url;
+      window.open(url,'_blank');
+    }catch(err){
+      console.error(err);
+      setOpenError('Impossible d\'ouvrir ce PDF. Réessaie une fois la connexion rétablie.');
+    }
+    setOpening(false);
+  }
 
   return(<div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:14,padding:'20px 12px'}}>
     <div style={{fontSize:14,fontWeight:600,color:'#1a1a1a'}}>Fiches explications du menu</div>
@@ -4748,6 +4665,13 @@ function ExplicationsView({menuFicheUrl,saveMenuFicheUrl,roleLinge,explicationPd
     {canEdit&&!explicationPdfMeta&&<div style={{fontSize:11,color:'#888',textAlign:'center',maxWidth:360}}>PDF uniquement (5 Mo environ, 8 Mo maximum). Pour un Word : "Enregistrer sous → PDF" avant d'importer.</div>}
     {explicationPdfMeta&&<div style={{fontSize:11,color:'#888'}}>{explicationPdfMeta.fileName} · mis à jour le {new Date(explicationPdfMeta.updatedAt).toLocaleDateString('fr-FR')}</div>}
 
+    {explicationPdfMeta&&(
+      <button onClick={handleOpen} disabled={opening} style={{padding:'14px 28px',background:'#378ADD',color:'#fff',borderRadius:8,fontSize:14,fontWeight:600,border:'none',cursor:opening?'default':'pointer',opacity:opening?0.6:1}}>
+        {opening?'Ouverture…':'📄 Ouvrir les explications Maître d\'Hôtel'}
+      </button>
+    )}
+    {openError&&<div style={{fontSize:12,color:'#991b1b'}}>{openError}</div>}
+
     {!explicationPdfMeta&&menuFicheUrl&&(
       <a href={menuFicheUrl} target="_blank" rel="noopener noreferrer" style={{padding:'10px 20px',background:'#ececea',color:'#1a1a1a',borderRadius:8,fontSize:13,fontWeight:600,textDecoration:'none',border:'0.5px solid #d4d2c8'}}>
         📄 Ouvrir l'ancienne fiche (lien externe)
@@ -4755,17 +4679,6 @@ function ExplicationsView({menuFicheUrl,saveMenuFicheUrl,roleLinge,explicationPd
     )}
     {!explicationPdfMeta&&!menuFicheUrl&&(
       <div style={{fontSize:13,color:'#888'}}>Aucune fiche disponible pour le moment.</div>
-    )}
-
-    {explicationPdfMeta&&(
-      <div style={{width:'100%',maxWidth:1000,display:'flex',flexDirection:'column',alignItems:'center'}}>
-        {loadingView&&<div style={{fontSize:13,color:'#888',padding:20}}>Chargement du PDF…</div>}
-        {viewError&&<div style={{fontSize:13,color:'#991b1b',padding:20}}>{viewError}</div>}
-        {!loadingView&&!viewError&&<div style={{fontSize:11,color:'#888',marginBottom:6}}>Pince pour zoomer, glisse pour te déplacer</div>}
-        <div ref={scrollWrapRef} onTouchStart={onPdfTouchStart} onTouchMove={onPdfTouchMove} onTouchEnd={onPdfTouchEnd} style={{width:'100%',overflow:'auto',touchAction:'pan-x pan-y'}}>
-          <div ref={containerRef} style={{display:'flex',flexDirection:'column',alignItems:'center',margin:'0 auto'}}/>
-        </div>
-      </div>
     )}
   </div>);
 }
