@@ -117,7 +117,7 @@ const {useState,useEffect,useLayoutEffect,useRef,useCallback}=React;
 // concrètes (ex. écrasement de données par un ancien mécanisme déjà corrigé ailleurs).
 // APP_VERSION doit être changé à chaque déploiement (ex. horodatage) pour que ce mécanisme
 // détecte la différence.
-const APP_VERSION='2026-10-01T09:30:00Z';
+const APP_VERSION='2026-10-01T11:00:00Z';
 if(window.pdfjsLib)window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 let appVersionCheckInFlight=false;
 async function checkForNewAppVersion(reloadImmediately){
@@ -1062,9 +1062,9 @@ function plnNormalizeTeam(team){
 }
 
 // ─── Planning : composant ─────────────────────────────────────────────────
-function PlanningView({planning,setPlanning,savePlanning,canManageSettings}){
+function PlanningView({planning,setPlanning,savePlanning,canManageSettings,roleLinge}){
   const [previewEntry,setPreviewEntry]=useState(null);
-  const readOnly=!!previewEntry;
+  const readOnly=!!roleLinge||!!previewEntry; // Équipe (equipelxv@sbm.mc) : lecture seule, verrouillé sur la semaine en cours (voir le call site : planning={roleLinge?compoPlanning:planning})
   const data=previewEntry?{...previewEntry.planning,startDateISO:previewEntry.startDateISO}:(planning||DEFAULT_PLANNING);
   const team=plnNormalizeTeam(data.team||PLN_TEAM_DEFAULT);
   const schedule=data.schedule||{};
@@ -1734,8 +1734,8 @@ function PlanningView({planning,setPlanning,savePlanning,canManageSettings}){
 
     <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}}>
       {!readOnly&&<button onClick={()=>setManageOpen(o=>!o)} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Gérer l'équipe</button>}
-      <button onClick={handleSave} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>{exporting?'Génération…':'Sauvegarder'}</button>
-      {<button onClick={()=>{setShowArchive(true);loadArchive();}} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Archives</button>}
+      {!readOnly&&<button onClick={handleSave} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>{exporting?'Génération…':'Sauvegarder'}</button>}
+      {!readOnly&&<button onClick={()=>{setShowArchive(true);loadArchive();}} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Archives</button>}
       {canManageSettings&&<button onClick={()=>setShowSettings(true)} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #d97706',borderRadius:6,cursor:'pointer',background:'#fef3c7',color:'#92400e'}}>Paramètres</button>}
       <div style={{display:'flex',alignItems:'center',gap:4,marginLeft:'auto'}}>
         <button onClick={()=>setZoomLevel(z=>Math.max(0.5,Math.round((z-0.1)*10)/10))} style={{padding:'6px 12px',fontSize:14,fontWeight:700,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>−</button>
@@ -4409,7 +4409,7 @@ function GroupeEditForm({draft,setDraft,onCancel,onSave,saving,error}){
   </div>);
 }
 
-function GroupeView({userEmail}){
+function GroupeView({userEmail,roleLinge}){
   const [groups,setGroups]=useState([]);
   const [loading,setLoading]=useState(true);
   const [parsing,setParsing]=useState(false);
@@ -4561,7 +4561,7 @@ function GroupeView({userEmail}){
     <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',padding:'8px 12px',background:'#ececea',borderRadius:8,border:'0.5px solid #d4d2c8'}}>
       <span style={{fontSize:13,fontWeight:500}}>Groupes à venir</span>
       <div style={{flex:1}}/>
-      {(<>
+      {!roleLinge&&(<>
         <input ref={fileRef} type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple style={{display:'none'}} onChange={handleFile}/>
         <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={parsing} style={{padding:'6px 12px',fontSize:12,fontWeight:600,border:'0.5px solid #378ADD',borderRadius:6,cursor:'pointer',background:'#eff6ff',color:'#1e40af',opacity:parsing?0.6:1}}>{parsing?'Lecture…':'+ Uploader un ou plusieurs Word'}</button>
         {queue.length>0&&<span style={{fontSize:11,fontWeight:600,color:'#1e40af',background:'#dbeafe',borderRadius:10,padding:'2px 8px'}}>{queue.length+' en attente'}</span>}
@@ -4581,8 +4581,8 @@ function GroupeView({userEmail}){
           </div>
           <div style={{display:'flex',gap:6}}>
             <button onClick={()=>setViewing(g)} style={{fontSize:11,padding:'4px 12px',border:'0.5px solid #86efac',borderRadius:6,cursor:'pointer',background:'#dcfce7',color:'#166534'}}>Voir</button>
-            {<button onClick={()=>editGroup(g)} style={{fontSize:11,padding:'4px 12px',border:'0.5px solid #93c5fd',borderRadius:6,cursor:'pointer',background:'#eff6ff',color:'#1e40af'}}>Éditer</button>}
-            {<button onClick={()=>removeGroup(g.id)} style={{fontSize:16,padding:'2px 10px',border:'none',borderRadius:4,cursor:'pointer',background:'#fee2e2',color:'#991b1b',lineHeight:1}}>×</button>}
+            {!roleLinge&&<button onClick={()=>editGroup(g)} style={{fontSize:11,padding:'4px 12px',border:'0.5px solid #93c5fd',borderRadius:6,cursor:'pointer',background:'#eff6ff',color:'#1e40af'}}>Éditer</button>}
+            {!roleLinge&&<button onClick={()=>removeGroup(g.id)} style={{fontSize:16,padding:'2px 10px',border:'none',borderRadius:4,cursor:'pointer',background:'#fee2e2',color:'#991b1b',lineHeight:1}}>×</button>}
           </div>
         </div>))}
       </div>);
@@ -4592,6 +4592,8 @@ function GroupeView({userEmail}){
 
 // ─── Superadmin ───────────────────────────────────────────────────────────────
 const SUPERADMIN_EMAIL='j.viale@sbm.mc';
+const LINGE_EMAIL='equipelxv@sbm.mc';
+function isLinge(email){return email===LINGE_EMAIL;}
 const EXPLICATION_PDF_MAX_BYTES=8*1024*1024; // 8 Mo brut (garde une marge au-dessus des 5 Mo annoncés)
 function ExplicationsView({menuFicheUrl,saveMenuFicheUrl,roleLinge,explicationPdfMeta,uploadExplicationPdf,deleteExplicationPdf,fetchExplicationPdfBytes}){
   const canEdit=!roleLinge;
@@ -5478,6 +5480,7 @@ function App(){
   weekServices.forEach((s,i)=>{if(LINE_BREAKS_BEFORE.includes(s.id)&&row.length>0){svcRows.push(<div key={'row'+i} style={{display:'flex',gap:4,width:'100%',flexWrap:'wrap'}}>{row}</div>);row=[];}const isA=currentService===s.id;row.push(<button key={s.id} onClick={()=>{setCurrentService(s.id);save(services,tables,terrasseMode,manual,s.id,compos,team);const ov=checkPlateauOverflow(tables[s.id]);if(ov.length>0)setPlateauAlert(ov);}} style={{padding:'6px 10px',fontSize:12,borderRadius:6,cursor:'pointer',background:isA?(s.nextWeek?'#ede9fe':'#dbeafe'):'#fff',color:isA?(s.nextWeek?'#5b21b6':'#1e40af'):'#555',fontWeight:isA?500:400,border:'0.5px solid '+(isA?(s.nextWeek?'#c4b5fd':'#93c5fd'):'#ccc'),borderStyle:s.nextWeek&&!isA?'dashed':'solid'}}>{svcLabelWithDate(s)}</button>);});
   if(row.length>0)svcRows.push(<div key="rowlast" style={{display:'flex',gap:4,width:'100%',flexWrap:'wrap'}}>{row}</div>);
 
+  const roleLinge=isLinge(userEmail);
   return(<div style={{fontFamily:'system-ui,sans-serif',background:'#f5f4f0',color:'#1a1a1a',padding:'12px',minHeight:'100vh'}}>
     <div style={{maxWidth:960,margin:'0 auto'}}>
       {/* Header avec sync status + logout + onglets, tout centré sur 3 lignes */}
@@ -5490,7 +5493,8 @@ function App(){
           <div style={{fontSize:11,color:'#aaa',maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{userEmail}</div>
           <button onClick={handleLogout} style={{fontSize:11,padding:'4px 10px',borderRadius:6,border:'0.5px solid #e5e7eb',cursor:'pointer',background:'#fff',color:'#888'}}>Déconnexion</button>
         </div>
-        <div style={{display:'flex',gap:4,justifyContent:'center',flexWrap:'wrap'}}>{['caisse','carcasse','compo'].map(t=>(<button key={t} onClick={()=>setTab(t)} style={{padding:'8px 20px',fontSize:13,fontWeight:tab===t?700:400,borderRadius:8,border:'none',cursor:'pointer',background:tab===t?'#1a1a1a':'#ececea',color:tab===t?'#fff':'#555',transition:'all .15s'}}>{t==='caisse'?'Caisse':t==='carcasse'?'Carcasse':'Compo'}</button>))}</div>
+        {!roleLinge&&<div style={{display:'flex',gap:4,justifyContent:'center',flexWrap:'wrap'}}>{['caisse','carcasse','compo'].map(t=>(<button key={t} onClick={()=>setTab(t)} style={{padding:'8px 20px',fontSize:13,fontWeight:tab===t?700:400,borderRadius:8,border:'none',cursor:'pointer',background:tab===t?'#1a1a1a':'#ececea',color:tab===t?'#fff':'#555',transition:'all .15s'}}>{t==='caisse'?'Caisse':t==='carcasse'?'Carcasse':'Compo'}</button>))}</div>}
+        {roleLinge&&<div style={{display:'flex',gap:4,justifyContent:'center',flexWrap:'wrap'}}><button onClick={()=>setTab('carcasse')} style={{padding:'8px 20px',fontSize:13,fontWeight:tab==='carcasse'?700:400,borderRadius:8,border:'none',cursor:'pointer',background:tab==='carcasse'?'#1a1a1a':'#ececea',color:tab==='carcasse'?'#fff':'#555',transition:'all .15s'}}>Carcasse</button></div>}
         <div style={{display:'flex',gap:4,justifyContent:'center',flexWrap:'wrap'}}>{['explications','fromage','groupe'].map(t=>(<button key={t} onClick={()=>setTab(t)} style={{padding:'8px 20px',fontSize:13,fontWeight:tab===t?700:400,borderRadius:8,border:'none',cursor:'pointer',background:tab===t?'#1a1a1a':'#ececea',color:tab===t?'#fff':'#555',transition:'all .15s'}}>{t==='explications'?'Explications':t==='fromage'?'Fromages':'Groupes'}</button>))}</div>
         <div style={{display:'flex',gap:4,justifyContent:'center',flexWrap:'wrap'}}>{['linge','planning'].map(t=>(<button key={t} onClick={()=>setTab(t)} style={{padding:'8px 20px',fontSize:13,fontWeight:tab===t?700:400,borderRadius:8,border:'none',cursor:'pointer',background:tab===t?'#1a1a1a':'#ececea',color:tab===t?'#fff':'#555',transition:'all .15s'}}>{t==='linge'?'Linge':'Planning'}</button>))}</div>
       </div>
@@ -5506,18 +5510,18 @@ function App(){
             <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>{svcRows}</div>
           </div>
           <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-            {<button onClick={toggleTerrasse} style={{padding:'6px 14px',fontSize:12,fontWeight:500,borderRadius:6,cursor:'pointer',background:terrasseMode[currentService]?'#dcfce7':'#fff',color:terrasseMode[currentService]?'#166534':'#555',border:'0.5px solid '+(terrasseMode[currentService]?'#86efac':'#ccc')}}>{terrasseMode[currentService]?'Terrasse ON':'Terrasse OFF'}</button>}
-            {<button onClick={toggleGP} style={{padding:'6px 14px',fontSize:12,fontWeight:500,borderRadius:6,cursor:'pointer',background:gpData[currentService]?.active?'#fef3c7':'#fff',color:gpData[currentService]?.active?'#92400e':'#555',border:'0.5px solid '+(gpData[currentService]?.active?'#d97706':'#ccc')}}>Carcasse GP</button>}
-            {<button onClick={()=>setShowSvc(true)} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>+ Service</button>}
+            {!roleLinge&&<button onClick={toggleTerrasse} style={{padding:'6px 14px',fontSize:12,fontWeight:500,borderRadius:6,cursor:'pointer',background:terrasseMode[currentService]?'#dcfce7':'#fff',color:terrasseMode[currentService]?'#166534':'#555',border:'0.5px solid '+(terrasseMode[currentService]?'#86efac':'#ccc')}}>{terrasseMode[currentService]?'Terrasse ON':'Terrasse OFF'}</button>}
+            {!roleLinge&&<button onClick={toggleGP} style={{padding:'6px 14px',fontSize:12,fontWeight:500,borderRadius:6,cursor:'pointer',background:gpData[currentService]?.active?'#fef3c7':'#fff',color:gpData[currentService]?.active?'#92400e':'#555',border:'0.5px solid '+(gpData[currentService]?.active?'#d97706':'#ccc')}}>Carcasse GP</button>}
+            {!roleLinge&&<button onClick={()=>setShowSvc(true)} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>+ Service</button>}
             {userEmail&&isSuperAdmin(userEmail)&&<button onClick={()=>setShowSettings(true)} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #d97706',borderRadius:6,cursor:'pointer',background:'#fef3c7',color:'#92400e'}}>Paramètres</button>}
             <button onClick={openCarcasseArchive} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Archive</button>
-            <button onClick={saveAllServicesSnapshot} disabled={carcasseSavingAll} title="Sauvegarde tous les services dans l'archive, en écrasant la précédente sauvegarde de chacun" style={{padding:'6px 14px',fontSize:12,fontWeight:600,border:'0.5px solid #86efac',borderRadius:6,cursor:'pointer',background:'#dcfce7',color:'#166534',opacity:carcasseSavingAll?0.6:1}}>{carcasseSavingAll?'Sauvegarde…':(carcasseSavedAll?'Sauvegardé ✓':'Sauvegarder')}</button>
+            {!roleLinge&&<button onClick={saveAllServicesSnapshot} disabled={carcasseSavingAll} title="Sauvegarde tous les services dans l'archive, en écrasant la précédente sauvegarde de chacun" style={{padding:'6px 14px',fontSize:12,fontWeight:600,border:'0.5px solid #86efac',borderRadius:6,cursor:'pointer',background:'#dcfce7',color:'#166534',opacity:carcasseSavingAll?0.6:1}}>{carcasseSavingAll?'Sauvegarde…':(carcasseSavedAll?'Sauvegardé ✓':'Sauvegarder')}</button>}
           </div>
         </div>
 
         <div style={{display:'flex',justifyContent:'center',gap:8,marginBottom:12}}>
-          <div style={{width:140}}><TotCard label="Pax" bg="#fef3c7"><input type="number" min={0} max={999} placeholder="–" value={man.pax==null?'':man.pax} onChange={e=>saveManual('pax',e.target.value)} onFocus={e=>e.target.select()} style={{fontSize:26,fontWeight:700,color:'#b45309',border:'none',background:'transparent',width:'100%',textAlign:'center',outline:'none',padding:'8px 4px 4px'}}/></TotCard></div>
-          <div style={{width:140}}><TotCard label="Tables" bg="#fef3c7"><input type="number" min={0} max={999} placeholder="–" value={man.tables==null?'':man.tables} onChange={e=>saveManual('tables',e.target.value)} onFocus={e=>e.target.select()} style={{fontSize:26,fontWeight:700,color:'#b45309',border:'none',background:'transparent',width:'100%',textAlign:'center',outline:'none',padding:'8px 4px 4px'}}/></TotCard></div>
+          <div style={{width:140}}><TotCard label="Pax" bg="#fef3c7"><input type="number" min={0} max={999} placeholder="–" value={man.pax==null?'':man.pax} onChange={e=>saveManual('pax',e.target.value)} disabled={roleLinge} onFocus={e=>e.target.select()} style={{fontSize:26,fontWeight:700,color:'#b45309',border:'none',background:'transparent',width:'100%',textAlign:'center',outline:'none',padding:'8px 4px 4px'}}/></TotCard></div>
+          <div style={{width:140}}><TotCard label="Tables" bg="#fef3c7"><input type="number" min={0} max={999} placeholder="–" value={man.tables==null?'':man.tables} onChange={e=>saveManual('tables',e.target.value)} disabled={roleLinge} onFocus={e=>e.target.select()} style={{fontSize:26,fontWeight:700,color:'#b45309',border:'none',background:'transparent',width:'100%',textAlign:'center',outline:'none',padding:'8px 4px 4px'}}/></TotCard></div>
         </div>
 
         {(()=>{
@@ -5537,10 +5541,10 @@ function App(){
               </div>
             </div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:6}}>
-              <ZoneBlock title="" tables={SALLE} svcData={svcData} onOpen={openModal} zone="salle"/>
+              <ZoneBlock title="" tables={SALLE} svcData={svcData} onOpen={openModal} zone="salle" readOnly={roleLinge}/>
               {gpData[currentService]?.active
-                ? <CarcasseGPZone gp={gpData[currentService]||{active:true,tables:[],extra:[]}} onChange={ng=>updateGpForService(currentService,ng)}/>
-                : <ZoneBlock title="" tables={TERRASSE} svcData={svcData} onOpen={openModal} zone="terrasse"/>}
+                ? <CarcasseGPZone gp={gpData[currentService]||{active:true,tables:[],extra:[]}} onChange={ng=>updateGpForService(currentService,ng)} readOnly={roleLinge}/>
+                : <ZoneBlock title="" tables={TERRASSE} svcData={svcData} onOpen={openModal} zone="terrasse" readOnly={roleLinge}/>}
             </div>
             <div style={{display:'flex',justifyContent:'center',gap:8,marginBottom:6}}>
               {[{label:'Salle',f:ts,c:cs+3,bg:'#ececea',fc:'#1a1a1a',cc:'#888'},{label:'Terrasse',f:tt,c:ct,bg:'#ececea',fc:'#1a1a1a',cc:'#888'},{label:'Total',f:ts+tt,c:cs+ct+3,bg:'#dbeafe',fc:'#1d4ed8',cc:'#60a5fa'}].map(({label,f,c,bg,fc,cc})=>(<div key={label} style={{width:140}}><TotCard label={label} bg={bg}><div style={{fontSize:22,fontWeight:700,color:fc,lineHeight:1,padding:'6px 4px 1px'}}>{f}</div><div style={{fontSize:9,color:cc,paddingBottom:1}}>Fauteuils</div><div style={{fontSize:16,fontWeight:600,color:fc,lineHeight:1,padding:'1px 4px'}}>{c}</div><div style={{fontSize:9,color:cc,paddingBottom:6}}>Cavallino</div></TotCard></div>))}
@@ -5569,7 +5573,7 @@ function App(){
 
       {tab==='compo'&&(<CompoView services={services} currentService={currentService} setCurrentService={setCurrentService} tables={tables} compos={compos} setCompos={setCompos} team={team} setTeam={setTeam} save={save} saveServicesAndTeam={saveServicesAndTeam} allSvcState={allSvcState} userEmail={userEmail} planning={compoPlanning}/>)}
 
-      {tab==='planning'&&(<PlanningView planning={planning} setPlanning={setPlanning} savePlanning={savePlanning} canManageSettings={isSuperAdmin(userEmail)}/>)}
+      {tab==='planning'&&(<PlanningView planning={roleLinge?compoPlanning:planning} setPlanning={setPlanning} savePlanning={savePlanning} canManageSettings={isSuperAdmin(userEmail)} roleLinge={roleLinge}/>)}
 
       {tab==='linge'&&(<div style={{display:'flex',flexDirection:'column',gap:10}}>
         <div style={{display:'flex',gap:6,justifyContent:'center'}}>
@@ -5588,7 +5592,7 @@ function App(){
         {fromageSubTab==='carte'&&<CarteFromageView userEmail={userEmail}/>}
       </div>)}
       {tab==='caisse'&&(<CaisseView userEmail={userEmail}/>)}
-      {tab==='groupe'&&(<GroupeView userEmail={userEmail}/>)}
+      {tab==='groupe'&&(<GroupeView userEmail={userEmail} roleLinge={roleLinge}/>)}
 
       {tab==='explications'&&(<ExplicationsView menuFicheUrl={menuFicheUrl} saveMenuFicheUrl={saveMenuFicheUrl} roleLinge={roleLinge} explicationPdfMeta={explicationPdfMeta} uploadExplicationPdf={uploadExplicationPdf} deleteExplicationPdf={deleteExplicationPdf} fetchExplicationPdfBytes={fetchExplicationPdfBytes}/>)}
     </div>
@@ -5668,8 +5672,8 @@ function App(){
                         <div style={{fontSize:10,color:'#aaa'}}>{(it.pax!=null?it.pax+' pax':'– pax')+' · '+(it.tablesCount!=null?it.tablesCount+' tables':'– tables')}</div>
                       </div>
                       <div style={{display:'flex',gap:6,alignItems:'center'}}>
-                        <button onClick={()=>loadCarcasseSnapshot(it)} style={{fontSize:11,padding:'5px 10px',border:'0.5px solid #86efac',borderRadius:6,cursor:'pointer',background:'#dcfce7',color:'#166534',fontWeight:600}}>Charger</button>
-                        <button onClick={async()=>{const fb=getFirebase();if(!fb)return;try{await fb.deleteDoc(fb.doc(fb.db,'carcasse_archive',it._id));setCarcasseArchive(prev=>prev.filter(x=>x._id!==it._id));}catch(e){console.error(e);}}} style={{fontSize:16,padding:'2px 8px',border:'none',borderRadius:4,cursor:'pointer',background:'#fee2e2',color:'#991b1b',lineHeight:1}}>×</button>
+                        {!roleLinge&&<button onClick={()=>loadCarcasseSnapshot(it)} style={{fontSize:11,padding:'5px 10px',border:'0.5px solid #86efac',borderRadius:6,cursor:'pointer',background:'#dcfce7',color:'#166534',fontWeight:600}}>Charger</button>}
+                        {!roleLinge&&<button onClick={async()=>{const fb=getFirebase();if(!fb)return;try{await fb.deleteDoc(fb.doc(fb.db,'carcasse_archive',it._id));setCarcasseArchive(prev=>prev.filter(x=>x._id!==it._id));}catch(e){console.error(e);}}} style={{fontSize:16,padding:'2px 8px',border:'none',borderRadius:4,cursor:'pointer',background:'#fee2e2',color:'#991b1b',lineHeight:1}}>×</button>}
                       </div>
                     </div>);
                   })}
