@@ -34,6 +34,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
 <!-- Firebase SDK -->
 <script type="module" id="firebase-init">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -116,7 +117,8 @@ const {useState,useEffect,useLayoutEffect,useRef,useCallback}=React;
 // concrètes (ex. écrasement de données par un ancien mécanisme déjà corrigé ailleurs).
 // APP_VERSION doit être changé à chaque déploiement (ex. horodatage) pour que ce mécanisme
 // détecte la différence.
-const APP_VERSION='2026-09-29T09:20:00Z';
+const APP_VERSION='2026-09-29T11:00:00Z';
+if(window.pdfjsLib)window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 let appVersionCheckInFlight=false;
 async function checkForNewAppVersion(reloadImmediately){
   if(appVersionCheckInFlight)return;
@@ -150,8 +152,6 @@ setInterval(()=>{
 // ─── Firebase helpers (loaded via module above) ───────────────────────────────
 function getFirebase(){return window.__firebase||null;}
 
-const LINGE_EMAIL='equipelxv@sbm.mc';
-function isLinge(email){return email===LINGE_EMAIL;}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const SALLE=['AQUA','AS','2','2B','3','3B','4','5','5B','6','7','7B','9','10','11','12'];
@@ -801,8 +801,8 @@ function CompoView({services,currentService,setCurrentService,tables,compos,setC
                       <div style={{fontSize:12,color:'#1a1a1a'}}>{svcType}</div>
                       <div style={{display:'flex',gap:6}}>
                         <button onClick={()=>{setSelectedArchiveEntry(it);setTimeout(()=>setShowArchiveCompo(false),0);}} style={{fontSize:11,padding:'3px 10px',border:'0.5px solid #86efac',borderRadius:6,cursor:'pointer',background:'#dcfce7',color:'#166534'}}>Voir</button>
-                        {!isLinge(userEmail)&&<button onClick={()=>{updateCompo(dc(it.compo));setShowArchiveCompo(false);}} style={{fontSize:11,padding:'3px 10px',border:'0.5px solid #93c5fd',borderRadius:6,cursor:'pointer',background:'#dbeafe',color:'#1e40af'}}>Charger</button>}
-                        {!isLinge(userEmail)&&<button onClick={async()=>{const fb=getFirebase();if(!fb)return;const key=it.svcId+'_'+it.date;try{await fb.deleteDoc(fb.doc(fb.db,'compo_archive',key));setArchiveCompo(prev=>prev.filter(x=>!(x.svcId===it.svcId&&x.date===it.date)));}catch(e){console.error(e);}}} style={{fontSize:16,padding:'2px 8px',border:'none',borderRadius:4,cursor:'pointer',background:'#fee2e2',color:'#991b1b',lineHeight:1}}>×</button>}
+                        {<button onClick={()=>{updateCompo(dc(it.compo));setShowArchiveCompo(false);}} style={{fontSize:11,padding:'3px 10px',border:'0.5px solid #93c5fd',borderRadius:6,cursor:'pointer',background:'#dbeafe',color:'#1e40af'}}>Charger</button>}
+                        {<button onClick={async()=>{const fb=getFirebase();if(!fb)return;const key=it.svcId+'_'+it.date;try{await fb.deleteDoc(fb.doc(fb.db,'compo_archive',key));setArchiveCompo(prev=>prev.filter(x=>!(x.svcId===it.svcId&&x.date===it.date)));}catch(e){console.error(e);}}} style={{fontSize:16,padding:'2px 8px',border:'none',borderRadius:4,cursor:'pointer',background:'#fee2e2',color:'#991b1b',lineHeight:1}}>×</button>}
                       </div>
                     </div>);
                   })}
@@ -1062,9 +1062,9 @@ function plnNormalizeTeam(team){
 }
 
 // ─── Planning : composant ─────────────────────────────────────────────────
-function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,canManageSettings,canArchive,roleLingeStatus}){
+function PlanningView({planning,setPlanning,savePlanning,canManageSettings}){
   const [previewEntry,setPreviewEntry]=useState(null);
-  const readOnly=readOnlyProp||!!previewEntry;
+  const readOnly=!!previewEntry;
   const data=previewEntry?{...previewEntry.planning,startDateISO:previewEntry.startDateISO}:(planning||DEFAULT_PLANNING);
   const team=plnNormalizeTeam(data.team||PLN_TEAM_DEFAULT);
   const schedule=data.schedule||{};
@@ -1526,11 +1526,10 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
 
   async function handleSave(){
     exportAsImage(); // ouvre l'aperçu à partager
-    if(canArchive)saveArchiveEntry(); // crée l'archive en parallèle
+    saveArchiveEntry(); // crée l'archive en parallèle
   }
 
   async function saveArchiveEntry(){
-    if(!canArchive)return;
     const fb=getFirebase();
     const dates=plnGetWeekDates(startDateISO);
     const label='Planning du '+plnFormatDMY(dates[0])+' au '+plnFormatDMY(dates[dates.length-1]);
@@ -1682,29 +1681,6 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
     const d=new Date(startDateISO+'T00:00:00');d.setDate(d.getDate()+7);
     loadPlanningForDate(plnISO(d));
   }
-  const [roNavMsg,setRoNavMsg]=useState('');
-  // Navigation en lecture seule (equipeLXV) : ne modifie jamais le planning partagé,
-  // se contente d'afficher l'archive de la semaine demandée si elle existe.
-  async function readOnlyNavigateWeek(direction){
-    const fb=getFirebase();if(!fb)return;
-    setRoNavMsg('');
-    const base=new Date(startDateISO+'T00:00:00');
-    base.setDate(base.getDate()+direction*7);
-    const targetISO=plnISO(base);
-    if(targetISO>getMondayISO(new Date())){
-      setRoNavMsg("Les semaines futures ne sont pas consultables.");
-      return;
-    }
-    try{
-      const ref=fb.doc(fb.db,'planning_archive',targetISO);
-      const snap=await fb.getDoc(ref);
-      if(snap.exists()&&snap.data().planning){
-        setPreviewEntry({planning:snap.data().planning,startDateISO:targetISO,label:snap.data().label||targetISO});
-      }else{
-        setRoNavMsg("Aucune archive pour cette semaine.");
-      }
-    }catch(e){console.error('Navigation lecture seule échouée :',e);setRoNavMsg("Erreur de chargement.");}
-  }
   function onDateDebutChange(val){
     if(readOnly)return;
     if(!val)return;
@@ -1744,16 +1720,6 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
       <button onClick={()=>setPreviewEntry(null)} style={{padding:'5px 12px',fontSize:12,fontWeight:600,border:'none',borderRadius:6,cursor:'pointer',background:'#92400e',color:'#fff'}}>Retour au planning actuel</button>
     </div>)}
     <div style={{fontSize:15,fontWeight:700,color:'#1a1a1a',margin:'0 0 10px 0',textTransform:'capitalize'}}>{monthReminder}</div>
-    {readOnlyProp&&roleLingeStatus&&roleLingeStatus!=='ok'&&(<div style={{background:'#fef3c7',border:'0.5px solid #d97706',borderRadius:8,padding:'8px 12px',marginBottom:10,fontSize:12,color:'#92400e'}}>
-      {roleLingeStatus==='loading'&&'Chargement du planning de la semaine en cours…'}
-      {roleLingeStatus.startsWith('empty:')&&('Aucune archive trouvée pour la semaine du '+roleLingeStatus.slice(6)+'. Le modèle par défaut est affiché à la place.')}
-      {roleLingeStatus.startsWith('error:')&&('Erreur de chargement : '+roleLingeStatus.slice(6))}
-    </div>)}
-    {readOnlyProp&&(<div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
-      <button onClick={()=>readOnlyNavigateWeek(-1)} style={{padding:'6px 12px',fontSize:14,fontWeight:700,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>←</button>
-      <button onClick={()=>readOnlyNavigateWeek(1)} disabled={startDateISO>=getMondayISO(new Date())} style={{padding:'6px 12px',fontSize:14,fontWeight:700,border:'0.5px solid #ccc',borderRadius:6,cursor:startDateISO>=getMondayISO(new Date())?'default':'pointer',background:'#fff',color:startDateISO>=getMondayISO(new Date())?'#ccc':'#555'}}>→</button>
-      {roNavMsg&&<span style={{fontSize:12,color:'#991b1b'}}>{roNavMsg}</span>}
-    </div>)}
 
     {!readOnly&&(<div style={{display:'flex',gap:14,alignItems:'center',marginBottom:14,flexWrap:'wrap'}}>
       <button onClick={goToPrevWeek} style={{padding:'6px 12px',fontSize:14,fontWeight:700,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>←</button>
@@ -1769,7 +1735,7 @@ function PlanningView({planning,setPlanning,savePlanning,readOnly:readOnlyProp,c
     <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}}>
       {!readOnly&&<button onClick={()=>setManageOpen(o=>!o)} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Gérer l'équipe</button>}
       <button onClick={handleSave} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>{exporting?'Génération…':'Sauvegarder'}</button>
-      {canArchive&&<button onClick={()=>{setShowArchive(true);loadArchive();}} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Archives</button>}
+      {<button onClick={()=>{setShowArchive(true);loadArchive();}} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Archives</button>}
       {canManageSettings&&<button onClick={()=>setShowSettings(true)} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #d97706',borderRadius:6,cursor:'pointer',background:'#fef3c7',color:'#92400e'}}>Paramètres</button>}
       <div style={{display:'flex',alignItems:'center',gap:4,marginLeft:'auto'}}>
         <button onClick={()=>setZoomLevel(z=>Math.max(0.5,Math.round((z-0.1)*10)/10))} style={{padding:'6px 12px',fontSize:14,fontWeight:700,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>−</button>
@@ -2835,7 +2801,7 @@ function LingeView({currentService,setCurrentService,services,tables,userEmail,l
                           if(parts2.length===3)setDateObj(new Date(parseInt(parts2[2]),parseInt(parts2[1])-1,parseInt(parts2[0])));
                           setShowExport(true);
                         }} style={{fontSize:11,padding:'3px 10px',border:'0.5px solid #86efac',borderRadius:6,cursor:'pointer',background:'#dcfce7',color:'#166534'}}>Voir</button>
-                        {!isLinge(userEmail)&&<button onClick={async()=>{const fb=getFirebase();if(!fb)return;const key=it.svcId+'_'+it.date;try{await fb.deleteDoc(fb.doc(fb.db,'linge',key));setArchive(prev=>prev.filter(x=>!(x.svcId===it.svcId&&x.date===it.date)));}catch(e){console.error(e);}}} style={{fontSize:16,padding:'2px 8px',border:'none',borderRadius:4,cursor:'pointer',background:'#fee2e2',color:'#991b1b',lineHeight:1}}>×</button>}
+                        {<button onClick={async()=>{const fb=getFirebase();if(!fb)return;const key=it.svcId+'_'+it.date;try{await fb.deleteDoc(fb.doc(fb.db,'linge',key));setArchive(prev=>prev.filter(x=>!(x.svcId===it.svcId&&x.date===it.date)));}catch(e){console.error(e);}}} style={{fontSize:16,padding:'2px 8px',border:'none',borderRadius:4,cursor:'pointer',background:'#fee2e2',color:'#991b1b',lineHeight:1}}>×</button>}
                       </div>
                     </div>);
                   })}
@@ -3280,7 +3246,7 @@ function ReceptionLingeView({userEmail,lingeItems}){
               <div style={{fontSize:12,fontWeight:600,color:'#1a1a1a',textTransform:'capitalize'}}>{fullDate}</div>
               <div style={{display:'flex',gap:6,alignItems:'center'}}>
                 <button onClick={()=>{setShowArchive(false);setVals({...buildVals(),...(it.vals||{})});const parts2=(it.dateDisplay||'').split('/');if(parts2.length===3)setDateObj(new Date(parseInt(parts2[2]),parseInt(parts2[1])-1,parseInt(parts2[0])));setDateConfirmed(true);setShowExport(true);}} style={{fontSize:11,padding:'3px 10px',border:'0.5px solid #86efac',borderRadius:6,cursor:'pointer',background:'#dcfce7',color:'#166534'}}>Voir</button>
-                {!isLinge(userEmail)&&<button onClick={async()=>{const fb=getFirebase();if(!fb)return;try{await fb.deleteDoc(fb.doc(fb.db,'linge_reception',it.date));setArchive(prev=>prev.filter(x=>x.date!==it.date));}catch(e){console.error(e);}}} style={{fontSize:16,padding:'2px 8px',border:'none',borderRadius:4,cursor:'pointer',background:'#fee2e2',color:'#991b1b',lineHeight:1}}>×</button>}
+                {<button onClick={async()=>{const fb=getFirebase();if(!fb)return;try{await fb.deleteDoc(fb.doc(fb.db,'linge_reception',it.date));setArchive(prev=>prev.filter(x=>x.date!==it.date));}catch(e){console.error(e);}}} style={{fontSize:16,padding:'2px 8px',border:'none',borderRadius:4,cursor:'pointer',background:'#fee2e2',color:'#991b1b',lineHeight:1}}>×</button>}
               </div>
             </div>);})}
           </AccordionMonth>);
@@ -3660,7 +3626,7 @@ function CarteFromageView({userEmail}){
     </div>
 
     {showList&&(<>
-    {!loading&&!isLinge(userEmail)&&(
+    {!loading&&(
       <button onClick={()=>setShowAdd(true)} style={{padding:'9px 0',fontSize:13,fontWeight:600,border:'none',borderRadius:8,background:'#378ADD',color:'#fff',cursor:'pointer'}}>+ Ajouter un fromage</button>
     )}
 
@@ -3669,7 +3635,7 @@ function CarteFromageView({userEmail}){
         {cheeses.map((c,i)=>(
           <div key={c.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',background:highlighted===c.id?'#eef4fc':(i%2===0?'#fff':'#fafaf9'),borderBottom:'0.5px solid #f0efe9'}}>
             <button onClick={()=>selectCheese(c)} style={{background:'none',border:'none',padding:0,fontSize:13,fontWeight:500,color:'#185FA5',cursor:'pointer',textAlign:'left',flex:1}}>{c.nom}</button>
-            {!isLinge(userEmail)&&<div style={{display:'flex',gap:6}}>
+            {<div style={{display:'flex',gap:6}}>
               <button onClick={()=>openEdit(c)} style={{fontSize:11,padding:'4px 9px',border:'0.5px solid #93c5fd',borderRadius:6,cursor:'pointer',background:'#dbeafe',color:'#1e40af',fontWeight:500}}>Modifier</button>
               <button onClick={()=>{if(window.confirm('Supprimer '+c.nom+' ?'))deleteCheese(c.id);}} style={{fontSize:15,padding:'2px 9px',border:'none',borderRadius:4,cursor:'pointer',background:'#fee2e2',color:'#991b1b',lineHeight:1}}>×</button>
             </div>}
@@ -3914,7 +3880,7 @@ function FromageView({currentService,services,userEmail,fromageList,setFromageLi
               </div>
               <div style={{display:'flex',gap:6,alignItems:'center'}}>
                 <button onClick={()=>{setShowArchive(false);if(it.vals){const merged=buildVals();Object.keys(merged).forEach(id=>{merged[id]=normalizeFromageItemVal(it.vals[id]);});setVals(merged);}setDateConfirmed(true);const parts2=(it.dateDisplay||'').split('/');if(parts2.length===3)setDateObj(new Date(parseInt(parts2[2]),parseInt(parts2[1])-1,parseInt(parts2[0])));setShowExport(true);}} style={{fontSize:11,padding:'3px 10px',border:'0.5px solid #86efac',borderRadius:6,cursor:'pointer',background:'#dcfce7',color:'#166534'}}>Voir</button>
-                {!isLinge(userEmail)&&<button onClick={async()=>{const fb=getFirebase();if(!fb)return;const key=it.svcId+'_'+it.date;try{await fb.deleteDoc(fb.doc(fb.db,'fromage',key));setArchive(prev=>prev.filter(x=>!(x.svcId===it.svcId&&x.date===it.date)));}catch(e){console.error(e);}}} style={{fontSize:16,padding:'2px 8px',border:'none',borderRadius:4,cursor:'pointer',background:'#fee2e2',color:'#991b1b',lineHeight:1}}>×</button>}
+                {<button onClick={async()=>{const fb=getFirebase();if(!fb)return;const key=it.svcId+'_'+it.date;try{await fb.deleteDoc(fb.doc(fb.db,'fromage',key));setArchive(prev=>prev.filter(x=>!(x.svcId===it.svcId&&x.date===it.date)));}catch(e){console.error(e);}}} style={{fontSize:16,padding:'2px 8px',border:'none',borderRadius:4,cursor:'pointer',background:'#fee2e2',color:'#991b1b',lineHeight:1}}>×</button>}
               </div>
             </div>);})}
           </AccordionMonth>);
@@ -4443,7 +4409,7 @@ function GroupeEditForm({draft,setDraft,onCancel,onSave,saving,error}){
   </div>);
 }
 
-function GroupeView({userEmail,roleLinge}){
+function GroupeView({userEmail}){
   const [groups,setGroups]=useState([]);
   const [loading,setLoading]=useState(true);
   const [parsing,setParsing]=useState(false);
@@ -4471,10 +4437,8 @@ function GroupeView({userEmail,roleLinge}){
         if(data.date&&data.date<today)toDelete.push(d.id);
         else items.push(norm);
       });
-      if(!roleLinge){
-        for(const id of toDelete){
-          try{await fb.deleteDoc(fb.doc(fb.db,'groupe',id));}catch(e){console.error(e);}
-        }
+      for(const id of toDelete){
+        try{await fb.deleteDoc(fb.doc(fb.db,'groupe',id));}catch(e){console.error(e);}
       }
       items.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
       setGroups(items);
@@ -4597,7 +4561,7 @@ function GroupeView({userEmail,roleLinge}){
     <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',padding:'8px 12px',background:'#ececea',borderRadius:8,border:'0.5px solid #d4d2c8'}}>
       <span style={{fontSize:13,fontWeight:500}}>Groupes à venir</span>
       <div style={{flex:1}}/>
-      {!roleLinge&&(<>
+      {(<>
         <input ref={fileRef} type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple style={{display:'none'}} onChange={handleFile}/>
         <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={parsing} style={{padding:'6px 12px',fontSize:12,fontWeight:600,border:'0.5px solid #378ADD',borderRadius:6,cursor:'pointer',background:'#eff6ff',color:'#1e40af',opacity:parsing?0.6:1}}>{parsing?'Lecture…':'+ Uploader un ou plusieurs Word'}</button>
         {queue.length>0&&<span style={{fontSize:11,fontWeight:600,color:'#1e40af',background:'#dbeafe',borderRadius:10,padding:'2px 8px'}}>{queue.length+' en attente'}</span>}
@@ -4617,8 +4581,8 @@ function GroupeView({userEmail,roleLinge}){
           </div>
           <div style={{display:'flex',gap:6}}>
             <button onClick={()=>setViewing(g)} style={{fontSize:11,padding:'4px 12px',border:'0.5px solid #86efac',borderRadius:6,cursor:'pointer',background:'#dcfce7',color:'#166534'}}>Voir</button>
-            {!roleLinge&&<button onClick={()=>editGroup(g)} style={{fontSize:11,padding:'4px 12px',border:'0.5px solid #93c5fd',borderRadius:6,cursor:'pointer',background:'#eff6ff',color:'#1e40af'}}>Éditer</button>}
-            {!roleLinge&&<button onClick={()=>removeGroup(g.id)} style={{fontSize:16,padding:'2px 10px',border:'none',borderRadius:4,cursor:'pointer',background:'#fee2e2',color:'#991b1b',lineHeight:1}}>×</button>}
+            {<button onClick={()=>editGroup(g)} style={{fontSize:11,padding:'4px 12px',border:'0.5px solid #93c5fd',borderRadius:6,cursor:'pointer',background:'#eff6ff',color:'#1e40af'}}>Éditer</button>}
+            {<button onClick={()=>removeGroup(g.id)} style={{fontSize:16,padding:'2px 10px',border:'none',borderRadius:4,cursor:'pointer',background:'#fee2e2',color:'#991b1b',lineHeight:1}}>×</button>}
           </div>
         </div>))}
       </div>);
@@ -4628,40 +4592,112 @@ function GroupeView({userEmail,roleLinge}){
 
 // ─── Superadmin ───────────────────────────────────────────────────────────────
 const SUPERADMIN_EMAIL='j.viale@sbm.mc';
-function ExplicationsView({menuFicheUrl,saveMenuFicheUrl,roleLinge}){
-  const canEdit=!roleLinge;
-  const [editing,setEditing]=useState(false);
-  const [draft,setDraft]=useState(menuFicheUrl||'');
-  useEffect(()=>{setDraft(menuFicheUrl||'');},[menuFicheUrl]);
-  function confirmSave(){saveMenuFicheUrl(draft.trim());setEditing(false);}
-  return(<div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:16,padding:'20px 12px'}}>
+const EXPLICATION_PDF_MAX_BYTES=8*1024*1024; // 8 Mo brut (garde une marge au-dessus des 5 Mo annoncés)
+function ExplicationsView({menuFicheUrl,saveMenuFicheUrl,explicationPdfMeta,uploadExplicationPdf,deleteExplicationPdf,fetchExplicationPdfBytes}){
+  const canEdit=true;
+  const fileInputRef=useRef(null);
+  const containerRef=useRef(null);
+  const [status,setStatus]=useState(''); // message d'état pendant l'envoi
+  const [progress,setProgress]=useState(0);
+  const [loadingView,setLoadingView]=useState(false);
+  const [viewError,setViewError]=useState('');
+  const [pdfKey,setPdfKey]=useState(0); // force le rendu à se relancer après un remplacement
+
+  async function handleFile(e){
+    const file=e.target.files&&e.target.files[0];
+    e.target.value='';
+    if(!file)return;
+    if(file.type!=='application/pdf'&&!file.name.toLowerCase().endsWith('.pdf')){
+      window.alert('Seuls les fichiers PDF sont acceptés. Pour un document Word, utilise "Enregistrer sous → PDF" avant de l\'importer ici.');
+      return;
+    }
+    if(file.size>EXPLICATION_PDF_MAX_BYTES){
+      window.alert('Ce fichier pèse '+(file.size/1024/1024).toFixed(1)+' Mo, trop volumineux (8 Mo maximum). Essaie de compresser les photos avant d\'exporter le PDF.');
+      return;
+    }
+    setStatus('Envoi en cours…');setProgress(0);
+    try{
+      await uploadExplicationPdf(file,pct=>{setProgress(pct);});
+      setStatus('');setPdfKey(k=>k+1);
+    }catch(err){
+      console.error(err);
+      setStatus('');
+      window.alert('Échec de l\'envoi : '+(err&&err.message?err.message:'erreur inconnue')+'. Réessaie une fois la connexion rétablie.');
+    }
+  }
+  async function handleDelete(){
+    if(!window.confirm('Retirer ce PDF ? Il faudra en renvoyer un pour que les explications réapparaissent.'))return;
+    await deleteExplicationPdf();
+  }
+
+  useEffect(()=>{
+    if(!explicationPdfMeta||!explicationPdfMeta.chunks){setLoadingView(false);return;}
+    let cancelled=false;
+    setLoadingView(true);setViewError('');
+    (async()=>{
+      try{
+        const bytes=await fetchExplicationPdfBytes(explicationPdfMeta);
+        if(cancelled)return;
+        if(!window.pdfjsLib){setViewError('Le lecteur PDF n\'a pas pu se charger (vérifie la connexion puis recharge la page).');setLoadingView(false);return;}
+        const pdf=await window.pdfjsLib.getDocument({data:bytes}).promise;
+        if(cancelled)return;
+        const holder=containerRef.current;
+        if(!holder)return;
+        holder.innerHTML='';
+        const targetWidth=Math.min(holder.clientWidth||700,900);
+        for(let n=1;n<=pdf.numPages;n++){
+          const page=await pdf.getPage(n);
+          if(cancelled)return;
+          const base=page.getViewport({scale:1});
+          const scale=(targetWidth/base.width)*2; // x2 pour rester net sur écran retina
+          const viewport=page.getViewport({scale});
+          const canvas=document.createElement('canvas');
+          canvas.width=viewport.width;canvas.height=viewport.height;
+          canvas.style.width='100%';canvas.style.maxWidth=targetWidth+'px';
+          canvas.style.marginBottom='10px';canvas.style.boxShadow='0 1px 4px rgba(0,0,0,.15)';canvas.style.borderRadius='4px';
+          holder.appendChild(canvas);
+          await page.render({canvasContext:canvas.getContext('2d'),viewport}).promise;
+        }
+        if(!cancelled)setLoadingView(false);
+      }catch(err){
+        console.error(err);
+        if(!cancelled){setViewError('Impossible d\'afficher ce PDF.');setLoadingView(false);}
+      }
+    })();
+    return ()=>{cancelled=true;};
+  },[explicationPdfMeta,pdfKey]);
+
+  return(<div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:14,padding:'20px 12px'}}>
     <div style={{fontSize:14,fontWeight:600,color:'#1a1a1a'}}>Fiches explications du menu</div>
-    {menuFicheUrl?(
-      <a href={menuFicheUrl} target="_blank" rel="noopener noreferrer" style={{padding:'14px 28px',background:'#378ADD',color:'#fff',borderRadius:8,fontSize:14,fontWeight:600,textDecoration:'none'}}>
-        📄 Ouvrir les explications Maître d'Hôtel
+
+    {canEdit&&(
+      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',justifyContent:'center'}}>
+        <input ref={fileInputRef} type="file" accept="application/pdf" onChange={handleFile} style={{display:'none'}}/>
+        <button onClick={()=>fileInputRef.current&&fileInputRef.current.click()} disabled={!!status} style={{padding:'9px 16px',fontSize:13,fontWeight:600,border:'none',borderRadius:8,background:'#378ADD',color:'#fff',cursor:status?'default':'pointer',opacity:status?0.6:1}}>
+          {explicationPdfMeta?'Remplacer le PDF':'Importer un PDF'}
+        </button>
+        {explicationPdfMeta&&!status&&<button onClick={handleDelete} style={{padding:'9px 14px',fontSize:13,border:'0.5px solid #ccc',borderRadius:8,background:'#fff',color:'#991b1b',cursor:'pointer'}}>Retirer</button>}
+        {status&&<span style={{fontSize:12,color:'#555'}}>{status} {progress}%</span>}
+      </div>
+    )}
+    {canEdit&&!explicationPdfMeta&&<div style={{fontSize:11,color:'#888',textAlign:'center',maxWidth:360}}>PDF uniquement (5 Mo environ, 8 Mo maximum). Pour un Word : "Enregistrer sous → PDF" avant d'importer.</div>}
+    {explicationPdfMeta&&<div style={{fontSize:11,color:'#888'}}>{explicationPdfMeta.fileName} · mis à jour le {new Date(explicationPdfMeta.updatedAt).toLocaleDateString('fr-FR')}</div>}
+
+    {!explicationPdfMeta&&menuFicheUrl&&(
+      <a href={menuFicheUrl} target="_blank" rel="noopener noreferrer" style={{padding:'10px 20px',background:'#ececea',color:'#1a1a1a',borderRadius:8,fontSize:13,fontWeight:600,textDecoration:'none',border:'0.5px solid #d4d2c8'}}>
+        📄 Ouvrir l'ancienne fiche (lien externe)
       </a>
-    ):(
+    )}
+    {!explicationPdfMeta&&!menuFicheUrl&&(
       <div style={{fontSize:13,color:'#888'}}>Aucune fiche disponible pour le moment.</div>
     )}
-    {canEdit&&(
-      editing?(
-        <div style={{display:'flex',flexDirection:'column',gap:8,width:'100%',maxWidth:420,padding:12,background:'#ececea',borderRadius:8,border:'0.5px solid #d4d2c8'}}>
-          <div style={{fontSize:12,color:'#666'}}>URL du PDF (GitHub Pages) :</div>
-          <input
-            type="text"
-            value={draft}
-            onChange={e=>setDraft(e.target.value)}
-            placeholder="https://prm6grt8h4-dev.github.io/carcasse-compo/explications.pdf"
-            style={{width:'100%',padding:'8px 10px',fontSize:13,border:'0.5px solid #ccc',borderRadius:6,boxSizing:'border-box',outline:'none'}}
-          />
-          <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
-            <button onClick={()=>{setDraft(menuFicheUrl||'');setEditing(false);}} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Annuler</button>
-            <button onClick={confirmSave} style={{padding:'6px 14px',fontSize:12,border:'none',borderRadius:6,cursor:'pointer',background:'#1a1a1a',color:'#fff',fontWeight:600}}>Enregistrer</button>
-          </div>
-        </div>
-      ):(
-        <button onClick={()=>setEditing(true)} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Mettre à jour le lien</button>
-      )
+
+    {explicationPdfMeta&&(
+      <div style={{width:'100%',maxWidth:900,display:'flex',flexDirection:'column',alignItems:'center'}}>
+        {loadingView&&<div style={{fontSize:13,color:'#888',padding:20}}>Chargement du PDF…</div>}
+        {viewError&&<div style={{fontSize:13,color:'#991b1b',padding:20}}>{viewError}</div>}
+        <div ref={containerRef} style={{width:'100%',display:'flex',flexDirection:'column',alignItems:'center'}}/>
+      </div>
     )}
   </div>);
 }
@@ -4900,13 +4936,13 @@ function App(){
   const [fromageList,setFromageList]=useState(dc(DEFAULT_FROMAGE_LIST));
   const [planning,setPlanning]=useState(()=>dc(DEFAULT_PLANNING));
   const [menuFicheUrl,setMenuFicheUrl]=useState('');
+  const [explicationPdfMeta,setExplicationPdfMeta]=useState(null);
   const saveTimerRef=useRef({});
   const planningSaveTimerRef=useRef(null);
   const planningPendingPatchRef=useRef({});
   const unsubscribeRef=useRef(null);
   const hasLoadedStateRef=useRef(false); // true seulement après la 1ère réception des vraies données Firestore (évite qu'un effet sauvegarde des valeurs par défaut avant leur arrivée)
   const carcasseLatestStateRef=useRef(null); // dernier état Firestore reçu, pour le filet de sécurité périodique de la maintenance Carcasse
-  const roleLinge=isLinge(userEmail);
 
   // Auth listener
   useEffect(()=>{
@@ -4950,6 +4986,7 @@ function App(){
       if(p.fromageList)setFromageList(p.fromageList);
       if(p.planning)setPlanning(p.planning);
       if(p.menuFicheUrl!==undefined)setMenuFicheUrl(p.menuFicheUrl);
+      if(p.explicationPdfMeta!==undefined)setExplicationPdfMeta(p.explicationPdfMeta);
       hasLoadedStateRef.current=true; // les données réelles sont arrivées : les effets qui pourraient sauvegarder (ex. synchro Planning->Compo) peuvent désormais le faire sans risque d'écraser avec des valeurs par défaut
       setSyncErrorDetail('');
       carcasseLatestStateRef.current=p;
@@ -5240,6 +5277,50 @@ function App(){
     try{const ref=fb.doc(fb.db,'app','state');await fb.setDoc(ref,{menuFicheUrl:url},{merge:true});}
     catch(e){console.error(e);}
   }
+  // PDF des explications : stocké dans Firestore découpé en morceaux (une seule "case" Firestore est
+  // limitée à 1 Mo, un PDF avec photos dépasse souvent cette taille). Pas de Firebase Storage : depuis
+  // février 2026, il exige une carte bancaire liée (plan Blaze) même pour rester gratuit — alors que
+  // Firestore reste gratuit sans carte (plan Spark), c'est pourquoi tout reste ici.
+  async function uploadExplicationPdf(file,onProgress){
+    const fb=getFirebase();if(!fb)throw new Error('Hors ligne');
+    const buf=await file.arrayBuffer();
+    let binary='';const bytes=new Uint8Array(buf);
+    for(let i=0;i<bytes.length;i++)binary+=String.fromCharCode(bytes[i]);
+    const b64=btoa(binary);
+    const CHUNK=700000;
+    const chunks=[];for(let i=0;i<b64.length;i+=CHUNK)chunks.push(b64.slice(i,i+CHUNK));
+    const prevCount=(explicationPdfMeta&&explicationPdfMeta.chunks)||0;
+    const col=fb.collection(fb.db,'explication_pdf_chunks');
+    for(let i=0;i<chunks.length;i++){
+      await fb.setDoc(fb.doc(col,'c'+i),{data:chunks[i]});
+      if(onProgress)onProgress(Math.round(((i+1)/chunks.length)*90));
+    }
+    for(let i=chunks.length;i<prevCount;i++){
+      try{await fb.deleteDoc(fb.doc(col,'c'+i));}catch(e){/* case déjà absente, rien à faire */}
+    }
+    const meta={chunks:chunks.length,fileName:file.name,sizeBytes:file.size,updatedAt:new Date().toISOString()};
+    await fb.setDoc(fb.doc(fb.db,'app','state'),{explicationPdfMeta:meta},{merge:true});
+    setExplicationPdfMeta(meta);
+    if(onProgress)onProgress(100);
+  }
+  async function deleteExplicationPdf(){
+    const fb=getFirebase();if(!fb)return;
+    const count=(explicationPdfMeta&&explicationPdfMeta.chunks)||0;
+    const col=fb.collection(fb.db,'explication_pdf_chunks');
+    for(let i=0;i<count;i++){try{await fb.deleteDoc(fb.doc(col,'c'+i));}catch(e){/* déjà absente */}}
+    await fb.setDoc(fb.doc(fb.db,'app','state'),{explicationPdfMeta:null},{merge:true});
+    setExplicationPdfMeta(null);
+  }
+  async function fetchExplicationPdfBytes(meta){
+    const fb=getFirebase();if(!fb)throw new Error('Hors ligne');
+    const col=fb.collection(fb.db,'explication_pdf_chunks');
+    const snaps=await Promise.all(Array.from({length:meta.chunks},(_,i)=>fb.getDoc(fb.doc(col,'c'+i))));
+    let b64='';snaps.forEach(s=>{if(s.exists())b64+=s.data().data;});
+    const binary=atob(b64);
+    const bytes=new Uint8Array(binary.length);
+    for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
+    return bytes;
+  }
 
 
   function toggleTerrasse(){
@@ -5372,7 +5453,7 @@ function App(){
           <div style={{fontSize:11,color:'#aaa',maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{userEmail}</div>
           <button onClick={handleLogout} style={{fontSize:11,padding:'4px 10px',borderRadius:6,border:'0.5px solid #e5e7eb',cursor:'pointer',background:'#fff',color:'#888'}}>Déconnexion</button>
         </div>
-        <div style={{display:'flex',gap:4,justifyContent:'center',flexWrap:'wrap'}}>{(roleLinge?['carcasse']:['caisse','carcasse','compo']).map(t=>(<button key={t} onClick={()=>setTab(t)} style={{padding:'8px 20px',fontSize:13,fontWeight:tab===t?700:400,borderRadius:8,border:'none',cursor:'pointer',background:tab===t?'#1a1a1a':'#ececea',color:tab===t?'#fff':'#555',transition:'all .15s'}}>{t==='caisse'?'Caisse':t==='carcasse'?'Carcasse':'Compo'}</button>))}</div>
+        <div style={{display:'flex',gap:4,justifyContent:'center',flexWrap:'wrap'}}>{['caisse','carcasse','compo'].map(t=>(<button key={t} onClick={()=>setTab(t)} style={{padding:'8px 20px',fontSize:13,fontWeight:tab===t?700:400,borderRadius:8,border:'none',cursor:'pointer',background:tab===t?'#1a1a1a':'#ececea',color:tab===t?'#fff':'#555',transition:'all .15s'}}>{t==='caisse'?'Caisse':t==='carcasse'?'Carcasse':'Compo'}</button>))}</div>
         <div style={{display:'flex',gap:4,justifyContent:'center',flexWrap:'wrap'}}>{['explications','fromage','groupe'].map(t=>(<button key={t} onClick={()=>setTab(t)} style={{padding:'8px 20px',fontSize:13,fontWeight:tab===t?700:400,borderRadius:8,border:'none',cursor:'pointer',background:tab===t?'#1a1a1a':'#ececea',color:tab===t?'#fff':'#555',transition:'all .15s'}}>{t==='explications'?'Explications':t==='fromage'?'Fromages':'Groupes'}</button>))}</div>
         <div style={{display:'flex',gap:4,justifyContent:'center',flexWrap:'wrap'}}>{['linge','planning'].map(t=>(<button key={t} onClick={()=>setTab(t)} style={{padding:'8px 20px',fontSize:13,fontWeight:tab===t?700:400,borderRadius:8,border:'none',cursor:'pointer',background:tab===t?'#1a1a1a':'#ececea',color:tab===t?'#fff':'#555',transition:'all .15s'}}>{t==='linge'?'Linge':'Planning'}</button>))}</div>
       </div>
@@ -5388,9 +5469,9 @@ function App(){
             <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>{svcRows}</div>
           </div>
           <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-            {!roleLinge&&<button onClick={toggleTerrasse} style={{padding:'6px 14px',fontSize:12,fontWeight:500,borderRadius:6,cursor:'pointer',background:terrasseMode[currentService]?'#dcfce7':'#fff',color:terrasseMode[currentService]?'#166534':'#555',border:'0.5px solid '+(terrasseMode[currentService]?'#86efac':'#ccc')}}>{terrasseMode[currentService]?'Terrasse ON':'Terrasse OFF'}</button>}
-            {!roleLinge&&<button onClick={toggleGP} style={{padding:'6px 14px',fontSize:12,fontWeight:500,borderRadius:6,cursor:'pointer',background:gpData[currentService]?.active?'#fef3c7':'#fff',color:gpData[currentService]?.active?'#92400e':'#555',border:'0.5px solid '+(gpData[currentService]?.active?'#d97706':'#ccc')}}>Carcasse GP</button>}
-            {!roleLinge&&<button onClick={()=>setShowSvc(true)} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>+ Service</button>}
+            {<button onClick={toggleTerrasse} style={{padding:'6px 14px',fontSize:12,fontWeight:500,borderRadius:6,cursor:'pointer',background:terrasseMode[currentService]?'#dcfce7':'#fff',color:terrasseMode[currentService]?'#166534':'#555',border:'0.5px solid '+(terrasseMode[currentService]?'#86efac':'#ccc')}}>{terrasseMode[currentService]?'Terrasse ON':'Terrasse OFF'}</button>}
+            {<button onClick={toggleGP} style={{padding:'6px 14px',fontSize:12,fontWeight:500,borderRadius:6,cursor:'pointer',background:gpData[currentService]?.active?'#fef3c7':'#fff',color:gpData[currentService]?.active?'#92400e':'#555',border:'0.5px solid '+(gpData[currentService]?.active?'#d97706':'#ccc')}}>Carcasse GP</button>}
+            {<button onClick={()=>setShowSvc(true)} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>+ Service</button>}
             {userEmail&&isSuperAdmin(userEmail)&&<button onClick={()=>setShowSettings(true)} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #d97706',borderRadius:6,cursor:'pointer',background:'#fef3c7',color:'#92400e'}}>Paramètres</button>}
             <button onClick={openCarcasseArchive} style={{padding:'6px 14px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Archive</button>
             <button onClick={saveAllServicesSnapshot} disabled={carcasseSavingAll} title="Sauvegarde tous les services dans l'archive, en écrasant la précédente sauvegarde de chacun" style={{padding:'6px 14px',fontSize:12,fontWeight:600,border:'0.5px solid #86efac',borderRadius:6,cursor:'pointer',background:'#dcfce7',color:'#166534',opacity:carcasseSavingAll?0.6:1}}>{carcasseSavingAll?'Sauvegarde…':(carcasseSavedAll?'Sauvegardé ✓':'Sauvegarder')}</button>
@@ -5398,8 +5479,8 @@ function App(){
         </div>
 
         <div style={{display:'flex',justifyContent:'center',gap:8,marginBottom:12}}>
-          <div style={{width:140}}><TotCard label="Pax" bg="#fef3c7"><input type="number" min={0} max={999} placeholder="–" value={man.pax==null?'':man.pax} onChange={e=>saveManual('pax',e.target.value)} onFocus={e=>e.target.select()} readOnly={roleLinge} style={{fontSize:26,fontWeight:700,color:'#b45309',border:'none',background:'transparent',width:'100%',textAlign:'center',outline:'none',padding:'8px 4px 4px'}}/></TotCard></div>
-          <div style={{width:140}}><TotCard label="Tables" bg="#fef3c7"><input type="number" min={0} max={999} placeholder="–" value={man.tables==null?'':man.tables} onChange={e=>saveManual('tables',e.target.value)} onFocus={e=>e.target.select()} readOnly={roleLinge} style={{fontSize:26,fontWeight:700,color:'#b45309',border:'none',background:'transparent',width:'100%',textAlign:'center',outline:'none',padding:'8px 4px 4px'}}/></TotCard></div>
+          <div style={{width:140}}><TotCard label="Pax" bg="#fef3c7"><input type="number" min={0} max={999} placeholder="–" value={man.pax==null?'':man.pax} onChange={e=>saveManual('pax',e.target.value)} onFocus={e=>e.target.select()} style={{fontSize:26,fontWeight:700,color:'#b45309',border:'none',background:'transparent',width:'100%',textAlign:'center',outline:'none',padding:'8px 4px 4px'}}/></TotCard></div>
+          <div style={{width:140}}><TotCard label="Tables" bg="#fef3c7"><input type="number" min={0} max={999} placeholder="–" value={man.tables==null?'':man.tables} onChange={e=>saveManual('tables',e.target.value)} onFocus={e=>e.target.select()} style={{fontSize:26,fontWeight:700,color:'#b45309',border:'none',background:'transparent',width:'100%',textAlign:'center',outline:'none',padding:'8px 4px 4px'}}/></TotCard></div>
         </div>
 
         {(()=>{
@@ -5411,18 +5492,18 @@ function App(){
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:4}}>
               <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                 <span style={{fontSize:11,textTransform:'uppercase',letterSpacing:'.06em',color:'#888',fontWeight:500}}>Salle</span>
-                {!roleLinge&&<button onClick={toggleSalleAll} style={{fontSize:10,padding:'2px 10px',borderRadius:10,border:'none',cursor:'pointer',background:salleAllOff?'#fee2e2':'#ececea',color:salleAllOff?'#991b1b':'#555',fontWeight:600}}>{salleAllOff?'Défaut':'OFF'}</button>}
+                {<button onClick={toggleSalleAll} style={{fontSize:10,padding:'2px 10px',borderRadius:10,border:'none',cursor:'pointer',background:salleAllOff?'#fee2e2':'#ececea',color:salleAllOff?'#991b1b':'#555',fontWeight:600}}>{salleAllOff?'Défaut':'OFF'}</button>}
               </div>
               <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                 <span style={{fontSize:11,textTransform:'uppercase',letterSpacing:'.06em',color:'#888',fontWeight:500}}>Terrasse</span>
-                {!roleLinge&&<button onClick={toggleTerrasseAll} style={{fontSize:10,padding:'2px 10px',borderRadius:10,border:'none',cursor:'pointer',background:terrasseAllOff?'#fee2e2':'#ececea',color:terrasseAllOff?'#991b1b':'#555',fontWeight:600}}>{terrasseAllOff?'Défaut':'OFF'}</button>}
+                {<button onClick={toggleTerrasseAll} style={{fontSize:10,padding:'2px 10px',borderRadius:10,border:'none',cursor:'pointer',background:terrasseAllOff?'#fee2e2':'#ececea',color:terrasseAllOff?'#991b1b':'#555',fontWeight:600}}>{terrasseAllOff?'Défaut':'OFF'}</button>}
               </div>
             </div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:6}}>
-              <ZoneBlock title="" tables={SALLE} svcData={svcData} onOpen={openModal} zone="salle" readOnly={roleLinge}/>
+              <ZoneBlock title="" tables={SALLE} svcData={svcData} onOpen={openModal} zone="salle"/>
               {gpData[currentService]?.active
-                ? <CarcasseGPZone gp={gpData[currentService]||{active:true,tables:[],extra:[]}} onChange={ng=>updateGpForService(currentService,ng)} readOnly={roleLinge}/>
-                : <ZoneBlock title="" tables={TERRASSE} svcData={svcData} onOpen={openModal} zone="terrasse" readOnly={roleLinge}/>}
+                ? <CarcasseGPZone gp={gpData[currentService]||{active:true,tables:[],extra:[]}} onChange={ng=>updateGpForService(currentService,ng)}/>
+                : <ZoneBlock title="" tables={TERRASSE} svcData={svcData} onOpen={openModal} zone="terrasse"/>}
             </div>
             <div style={{display:'flex',justifyContent:'center',gap:8,marginBottom:6}}>
               {[{label:'Salle',f:ts,c:cs+3,bg:'#ececea',fc:'#1a1a1a',cc:'#888'},{label:'Terrasse',f:tt,c:ct,bg:'#ececea',fc:'#1a1a1a',cc:'#888'},{label:'Total',f:ts+tt,c:cs+ct+3,bg:'#dbeafe',fc:'#1d4ed8',cc:'#60a5fa'}].map(({label,f,c,bg,fc,cc})=>(<div key={label} style={{width:140}}><TotCard label={label} bg={bg}><div style={{fontSize:22,fontWeight:700,color:fc,lineHeight:1,padding:'6px 4px 1px'}}>{f}</div><div style={{fontSize:9,color:cc,paddingBottom:1}}>Fauteuils</div><div style={{fontSize:16,fontWeight:600,color:fc,lineHeight:1,padding:'1px 4px'}}>{c}</div><div style={{fontSize:9,color:cc,paddingBottom:6}}>Cavallino</div></TotCard></div>))}
@@ -5446,12 +5527,12 @@ function App(){
             {(gpMvt.down.carree||gpMvt.down.rectangle||gpMvt.down.chaise)&&<div style={{fontSize:12,color:'#991b1b'}}>{'À descendre : '+[gpMvt.down.carree&&(gpMvt.down.carree+' table'+(gpMvt.down.carree>1?'s':'')+' carrée'+(gpMvt.down.carree>1?'s':'')),gpMvt.down.rectangle&&(gpMvt.down.rectangle+' table'+(gpMvt.down.rectangle>1?'s':'')+' rectangle'+(gpMvt.down.rectangle>1?'s':'')),gpMvt.down.chaise&&(gpMvt.down.chaise+' chaise'+(gpMvt.down.chaise>1?'s':'')+' GP (+ coussins)')].filter(Boolean).join(', ')}</div>}
           </div>
         )}
-        {!roleLinge&&<SalleEmpireBlock tables={tables} services={services} currentService={currentService}/>}
+        {<SalleEmpireBlock tables={tables} services={services} currentService={currentService}/>}
       </div>)}
 
-      {tab==='compo'&&!roleLinge&&(<CompoView services={services} currentService={currentService} setCurrentService={setCurrentService} tables={tables} compos={compos} setCompos={setCompos} team={team} setTeam={setTeam} save={save} saveServicesAndTeam={saveServicesAndTeam} allSvcState={allSvcState} userEmail={userEmail} planning={compoPlanning}/>)}
+      {tab==='compo'&&(<CompoView services={services} currentService={currentService} setCurrentService={setCurrentService} tables={tables} compos={compos} setCompos={setCompos} team={team} setTeam={setTeam} save={save} saveServicesAndTeam={saveServicesAndTeam} allSvcState={allSvcState} userEmail={userEmail} planning={compoPlanning}/>)}
 
-      {tab==='planning'&&(<PlanningView planning={roleLinge?compoPlanning:planning} setPlanning={setPlanning} savePlanning={savePlanning} readOnly={roleLinge} canManageSettings={isSuperAdmin(userEmail)} canArchive={!roleLinge} roleLingeStatus={roleLinge?compoPlanningStatus:null}/>)}
+      {tab==='planning'&&(<PlanningView planning={planning} setPlanning={setPlanning} savePlanning={savePlanning} canManageSettings={isSuperAdmin(userEmail)}/>)}
 
       {tab==='linge'&&(<div style={{display:'flex',flexDirection:'column',gap:10}}>
         <div style={{display:'flex',gap:6,justifyContent:'center'}}>
@@ -5469,10 +5550,10 @@ function App(){
         {fromageSubTab==='compte'&&<FromageView currentService={currentService} services={services} userEmail={userEmail} fromageList={fromageList} setFromageList={setFromageList} saveFromageList={saveFromageList}/>}
         {fromageSubTab==='carte'&&<CarteFromageView userEmail={userEmail}/>}
       </div>)}
-      {tab==='caisse'&&!roleLinge&&(<CaisseView userEmail={userEmail}/>)}
-      {tab==='groupe'&&(<GroupeView userEmail={userEmail} roleLinge={roleLinge}/>)}
+      {tab==='caisse'&&(<CaisseView userEmail={userEmail}/>)}
+      {tab==='groupe'&&(<GroupeView userEmail={userEmail}/>)}
 
-      {tab==='explications'&&(<ExplicationsView menuFicheUrl={menuFicheUrl} saveMenuFicheUrl={saveMenuFicheUrl} roleLinge={roleLinge}/>)}
+      {tab==='explications'&&(<ExplicationsView menuFicheUrl={menuFicheUrl} saveMenuFicheUrl={saveMenuFicheUrl} explicationPdfMeta={explicationPdfMeta} uploadExplicationPdf={uploadExplicationPdf} deleteExplicationPdf={deleteExplicationPdf} fetchExplicationPdfBytes={fetchExplicationPdfBytes}/>)}
     </div>
 
     {modal&&(<div onClick={e=>{if(e.target===e.currentTarget)setModal(null);}} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:100}}><div style={{background:'#fff',borderRadius:12,padding:20,width:340,border:'0.5px solid #ddd'}}>
