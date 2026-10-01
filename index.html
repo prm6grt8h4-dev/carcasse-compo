@@ -117,7 +117,7 @@ const {useState,useEffect,useLayoutEffect,useRef,useCallback}=React;
 // concrètes (ex. écrasement de données par un ancien mécanisme déjà corrigé ailleurs).
 // APP_VERSION doit être changé à chaque déploiement (ex. horodatage) pour que ce mécanisme
 // détecte la différence.
-const APP_VERSION='2026-10-01T11:00:00Z';
+const APP_VERSION='2026-10-01T11:30:00Z';
 if(window.pdfjsLib)window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 let appVersionCheckInFlight=false;
 async function checkForNewAppVersion(reloadImmediately){
@@ -4601,6 +4601,10 @@ function ExplicationsView({menuFicheUrl,saveMenuFicheUrl,roleLinge,explicationPd
   const containerRef=useRef(null);
   const scrollWrapRef=useRef(null);
   const baseWidthRef=useRef(0);
+  const pdfDocRef=useRef(null); // document pdf.js déjà chargé, pour redessiner sans re-télécharger
+  const canvasListRef=useRef([]); // [{canvas, page}] pour redessiner chaque page en net au bon niveau de zoom
+  const lastHiResZoomRef=useRef(1);
+  const hiResTimerRef=useRef(null);
   const [pdfZoom,setPdfZoom]=useState(1);
   const pdfPinchRef=useRef({active:false,startDist:0,startZoom:1});
   const [status,setStatus]=useState(''); // message d'état pendant l'envoi
@@ -4625,8 +4629,29 @@ function ExplicationsView({menuFicheUrl,saveMenuFicheUrl,roleLinge,explicationPd
       setPdfZoom(Math.max(1,Math.min(2.5,Math.round(next*100)/100)));
     }
   }
+  async function renderPdfHiRes(zoom){
+    const pages=canvasListRef.current;
+    if(!pages.length)return;
+    const sharpness=Math.min(window.devicePixelRatio||2,3); // marge de netteté au-dessus de la densité d'écran réelle
+    const cssWidth=baseWidthRef.current*zoom;
+    for(const entry of pages){
+      const base=entry.page.getViewport({scale:1});
+      const scale=(cssWidth/base.width)*sharpness;
+      const viewport=entry.page.getViewport({scale});
+      entry.canvas.width=viewport.width;entry.canvas.height=viewport.height;
+      try{await entry.page.render({canvasContext:entry.canvas.getContext('2d'),viewport}).promise;}catch(e){/* un nouveau zoom a pu interrompre ce rendu, rien à faire */}
+    }
+    lastHiResZoomRef.current=zoom;
+  }
   function onPdfTouchEnd(e){
-    if(e.touches.length<2)pdfPinchRef.current.active=false;
+    if(e.touches.length<2){
+      pdfPinchRef.current.active=false;
+      const z=pdfZoom;
+      if(hiResTimerRef.current)clearTimeout(hiResTimerRef.current);
+      // Petite pause après la fin du pincement : laisse le temps à un deuxième pincement d'arriver
+      // plutôt que de redessiner à chaque micro-relâchement des doigts.
+      hiResTimerRef.current=setTimeout(()=>{if(Math.abs(z-lastHiResZoomRef.current)>0.05)renderPdfHiRes(z);},150);
+    }
   }
   // Applique le zoom en changeant la largeur réelle du conteneur (pas un simple agrandissement
   // visuel) : le défilement natif à un doigt continue de fonctionner pour se déplacer dans la page
@@ -4673,6 +4698,9 @@ function ExplicationsView({menuFicheUrl,saveMenuFicheUrl,roleLinge,explicationPd
         if(!window.pdfjsLib){setViewError('Le lecteur PDF n\'a pas pu se charger (vérifie la connexion puis recharge la page).');setLoadingView(false);return;}
         const pdf=await window.pdfjsLib.getDocument({data:bytes}).promise;
         if(cancelled)return;
+        pdfDocRef.current=pdf;
+        canvasListRef.current=[];
+        lastHiResZoomRef.current=1;
         const holder=containerRef.current;
         if(!holder)return;
         holder.innerHTML='';
@@ -4680,7 +4708,7 @@ function ExplicationsView({menuFicheUrl,saveMenuFicheUrl,roleLinge,explicationPd
         const targetWidth=Math.min(scrollWrapRef.current?scrollWrapRef.current.clientWidth:(holder.clientWidth||700),1000);
         baseWidthRef.current=targetWidth;
         holder.style.width=targetWidth+'px';
-        const RENDER_MULTIPLIER=4; // résolution native ≈ 4x la largeur affichée à zoom x1, pour rester net jusqu'à ~x2,5 de zoom sur écran retina
+        const RENDER_MULTIPLIER=4; // résolution native ≈ 4x la largeur affichée à zoom x1 ; au-delà, le redessin net prend le relais à la fin du pincement
         for(let n=1;n<=pdf.numPages;n++){
           const page=await pdf.getPage(n);
           if(cancelled)return;
@@ -4693,6 +4721,7 @@ function ExplicationsView({menuFicheUrl,saveMenuFicheUrl,roleLinge,explicationPd
           canvas.style.marginBottom='10px';canvas.style.boxShadow='0 1px 4px rgba(0,0,0,.15)';canvas.style.borderRadius='4px';
           holder.appendChild(canvas);
           await page.render({canvasContext:canvas.getContext('2d'),viewport}).promise;
+          canvasListRef.current.push({canvas,page});
         }
         if(!cancelled)setLoadingView(false);
       }catch(err){
