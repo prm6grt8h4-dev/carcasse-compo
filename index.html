@@ -117,7 +117,7 @@ const {useState,useEffect,useLayoutEffect,useRef,useCallback}=React;
 // concrètes (ex. écrasement de données par un ancien mécanisme déjà corrigé ailleurs).
 // APP_VERSION doit être changé à chaque déploiement (ex. horodatage) pour que ce mécanisme
 // détecte la différence.
-const APP_VERSION='2026-09-29T11:00:00Z';
+const APP_VERSION='2026-10-01T09:30:00Z';
 if(window.pdfjsLib)window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 let appVersionCheckInFlight=false;
 async function checkForNewAppVersion(reloadImmediately){
@@ -4593,15 +4593,45 @@ function GroupeView({userEmail}){
 // ─── Superadmin ───────────────────────────────────────────────────────────────
 const SUPERADMIN_EMAIL='j.viale@sbm.mc';
 const EXPLICATION_PDF_MAX_BYTES=8*1024*1024; // 8 Mo brut (garde une marge au-dessus des 5 Mo annoncés)
-function ExplicationsView({menuFicheUrl,saveMenuFicheUrl,explicationPdfMeta,uploadExplicationPdf,deleteExplicationPdf,fetchExplicationPdfBytes}){
-  const canEdit=true;
+function ExplicationsView({menuFicheUrl,saveMenuFicheUrl,roleLinge,explicationPdfMeta,uploadExplicationPdf,deleteExplicationPdf,fetchExplicationPdfBytes}){
+  const canEdit=!roleLinge;
   const fileInputRef=useRef(null);
   const containerRef=useRef(null);
+  const scrollWrapRef=useRef(null);
+  const baseWidthRef=useRef(0);
+  const [pdfZoom,setPdfZoom]=useState(1);
+  const pdfPinchRef=useRef({active:false,startDist:0,startZoom:1});
   const [status,setStatus]=useState(''); // message d'état pendant l'envoi
   const [progress,setProgress]=useState(0);
   const [loadingView,setLoadingView]=useState(false);
   const [viewError,setViewError]=useState('');
   const [pdfKey,setPdfKey]=useState(0); // force le rendu à se relancer après un remplacement
+
+  function onPdfTouchStart(e){
+    if(e.touches.length===2){
+      e.preventDefault();
+      const dx=e.touches[1].clientX-e.touches[0].clientX,dy=e.touches[1].clientY-e.touches[0].clientY;
+      pdfPinchRef.current={active:true,startDist:Math.sqrt(dx*dx+dy*dy),startZoom:pdfZoom};
+    }
+  }
+  function onPdfTouchMove(e){
+    if(pdfPinchRef.current.active&&e.touches.length===2){
+      e.preventDefault();
+      const dx=e.touches[1].clientX-e.touches[0].clientX,dy=e.touches[1].clientY-e.touches[0].clientY;
+      const dist=Math.sqrt(dx*dx+dy*dy);
+      const next=pdfPinchRef.current.startZoom*(dist/pdfPinchRef.current.startDist);
+      setPdfZoom(Math.max(1,Math.min(2.5,Math.round(next*100)/100)));
+    }
+  }
+  function onPdfTouchEnd(e){
+    if(e.touches.length<2)pdfPinchRef.current.active=false;
+  }
+  // Applique le zoom en changeant la largeur réelle du conteneur (pas un simple agrandissement
+  // visuel) : le défilement natif à un doigt continue de fonctionner pour se déplacer dans la page
+  // zoomée, comme pour le tableau du Planning.
+  useEffect(()=>{
+    if(containerRef.current&&baseWidthRef.current)containerRef.current.style.width=(baseWidthRef.current*pdfZoom)+'px';
+  },[pdfZoom]);
 
   async function handleFile(e){
     const file=e.target.files&&e.target.files[0];
@@ -4644,16 +4674,20 @@ function ExplicationsView({menuFicheUrl,saveMenuFicheUrl,explicationPdfMeta,uplo
         const holder=containerRef.current;
         if(!holder)return;
         holder.innerHTML='';
-        const targetWidth=Math.min(holder.clientWidth||700,900);
+        setPdfZoom(1);
+        const targetWidth=Math.min(scrollWrapRef.current?scrollWrapRef.current.clientWidth:(holder.clientWidth||700),1000);
+        baseWidthRef.current=targetWidth;
+        holder.style.width=targetWidth+'px';
+        const RENDER_MULTIPLIER=4; // résolution native ≈ 4x la largeur affichée à zoom x1, pour rester net jusqu'à ~x2,5 de zoom sur écran retina
         for(let n=1;n<=pdf.numPages;n++){
           const page=await pdf.getPage(n);
           if(cancelled)return;
           const base=page.getViewport({scale:1});
-          const scale=(targetWidth/base.width)*2; // x2 pour rester net sur écran retina
+          const scale=(targetWidth/base.width)*RENDER_MULTIPLIER;
           const viewport=page.getViewport({scale});
           const canvas=document.createElement('canvas');
           canvas.width=viewport.width;canvas.height=viewport.height;
-          canvas.style.width='100%';canvas.style.maxWidth=targetWidth+'px';
+          canvas.style.width='100%';canvas.style.display='block';
           canvas.style.marginBottom='10px';canvas.style.boxShadow='0 1px 4px rgba(0,0,0,.15)';canvas.style.borderRadius='4px';
           holder.appendChild(canvas);
           await page.render({canvasContext:canvas.getContext('2d'),viewport}).promise;
@@ -4693,10 +4727,13 @@ function ExplicationsView({menuFicheUrl,saveMenuFicheUrl,explicationPdfMeta,uplo
     )}
 
     {explicationPdfMeta&&(
-      <div style={{width:'100%',maxWidth:900,display:'flex',flexDirection:'column',alignItems:'center'}}>
+      <div style={{width:'100%',maxWidth:1000,display:'flex',flexDirection:'column',alignItems:'center'}}>
         {loadingView&&<div style={{fontSize:13,color:'#888',padding:20}}>Chargement du PDF…</div>}
         {viewError&&<div style={{fontSize:13,color:'#991b1b',padding:20}}>{viewError}</div>}
-        <div ref={containerRef} style={{width:'100%',display:'flex',flexDirection:'column',alignItems:'center'}}/>
+        {!loadingView&&!viewError&&<div style={{fontSize:11,color:'#888',marginBottom:6}}>Pince pour zoomer, glisse pour te déplacer</div>}
+        <div ref={scrollWrapRef} onTouchStart={onPdfTouchStart} onTouchMove={onPdfTouchMove} onTouchEnd={onPdfTouchEnd} style={{width:'100%',overflow:'auto',touchAction:'pan-x pan-y'}}>
+          <div ref={containerRef} style={{display:'flex',flexDirection:'column',alignItems:'center',margin:'0 auto'}}/>
+        </div>
       </div>
     )}
   </div>);
@@ -5553,7 +5590,7 @@ function App(){
       {tab==='caisse'&&(<CaisseView userEmail={userEmail}/>)}
       {tab==='groupe'&&(<GroupeView userEmail={userEmail}/>)}
 
-      {tab==='explications'&&(<ExplicationsView menuFicheUrl={menuFicheUrl} saveMenuFicheUrl={saveMenuFicheUrl} explicationPdfMeta={explicationPdfMeta} uploadExplicationPdf={uploadExplicationPdf} deleteExplicationPdf={deleteExplicationPdf} fetchExplicationPdfBytes={fetchExplicationPdfBytes}/>)}
+      {tab==='explications'&&(<ExplicationsView menuFicheUrl={menuFicheUrl} saveMenuFicheUrl={saveMenuFicheUrl} roleLinge={roleLinge} explicationPdfMeta={explicationPdfMeta} uploadExplicationPdf={uploadExplicationPdf} deleteExplicationPdf={deleteExplicationPdf} fetchExplicationPdfBytes={fetchExplicationPdfBytes}/>)}
     </div>
 
     {modal&&(<div onClick={e=>{if(e.target===e.currentTarget)setModal(null);}} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:100}}><div style={{background:'#fff',borderRadius:12,padding:20,width:340,border:'0.5px solid #ddd'}}>
