@@ -116,7 +116,7 @@ const {useState,useEffect,useLayoutEffect,useRef,useCallback}=React;
 // concrètes (ex. écrasement de données par un ancien mécanisme déjà corrigé ailleurs).
 // APP_VERSION doit être changé à chaque déploiement (ex. horodatage) pour que ce mécanisme
 // détecte la différence.
-const APP_VERSION='2026-10-01T12:00:00Z';
+const APP_VERSION='2026-10-01T12:15:00Z';
 let appVersionCheckInFlight=false;
 async function checkForNewAppVersion(reloadImmediately){
   if(appVersionCheckInFlight)return;
@@ -4634,17 +4634,24 @@ function ExplicationsView({menuFicheUrl,saveMenuFicheUrl,roleLinge,explicationPd
   // que de le redessiner nous-mêmes : un zoom/dézoom répété sur un canvas fait planter Safari iOS en
   // mémoire. Ici, aucun rendu maison, aucun risque de plantage, zoom natif fluide.
   async function handleOpen(){
-    setOpening(true);setOpenError('');
+    setOpenError('');
+    // Ouvert tout de suite, pendant le clic lui-même : Safari bloque silencieusement window.open()
+    // s'il arrive après un await (le téléchargement Firestore), même bref.
+    const win=window.open('','_blank');
+    if(win)try{win.document.write('Ouverture du PDF…');}catch(e){/* tant pis pour ce message, pas bloquant */}
+    setOpening(true);
     try{
       const bytes=await fetchExplicationPdfBytes(explicationPdfMeta);
       const blob=new Blob([bytes],{type:'application/pdf'});
       if(objectUrlRef.current)URL.revokeObjectURL(objectUrlRef.current);
       const url=URL.createObjectURL(blob);
       objectUrlRef.current=url;
-      window.open(url,'_blank');
+      if(win&&!win.closed)win.location.href=url;
+      else window.location.href=url; // popup bloquée malgré tout : on ouvre dans l'onglet actuel plutôt que de ne rien faire
     }catch(err){
       console.error(err);
       setOpenError('Impossible d\'ouvrir ce PDF. Réessaie une fois la connexion rétablie.');
+      if(win&&!win.closed)win.close();
     }
     setOpening(false);
   }
