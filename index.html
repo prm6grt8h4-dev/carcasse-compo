@@ -116,7 +116,7 @@ const {useState,useEffect,useLayoutEffect,useRef,useCallback}=React;
 // concrètes (ex. écrasement de données par un ancien mécanisme déjà corrigé ailleurs).
 // APP_VERSION doit être changé à chaque déploiement (ex. horodatage) pour que ce mécanisme
 // détecte la différence.
-const APP_VERSION='2026-10-01T12:15:00Z';
+const APP_VERSION='2026-10-02T09:00:00Z';
 let appVersionCheckInFlight=false;
 async function checkForNewAppVersion(reloadImmediately){
   if(appVersionCheckInFlight)return;
@@ -4418,6 +4418,8 @@ function GroupeView({userEmail,roleLinge}){
   const [error,setError]=useState('');
   const [queue,setQueue]=useState([]);
   const fileRef=useRef(null);
+  const [isDragging,setIsDragging]=useState(false);
+  const dragCounterRef=useRef(0);
 
   async function loadGroups(){
     setLoading(true);
@@ -4459,13 +4461,40 @@ function GroupeView({userEmail,roleLinge}){
     setParsing(false);
   }
 
-  async function handleFile(e){
-    const files=e.target.files?Array.from(e.target.files):[];
-    if(fileRef.current)fileRef.current.value='';
+  async function handleFiles(files){
     if(files.length===0)return;
     const [first,...rest]=files;
     setQueue(rest);
     await processFile(first);
+  }
+  async function handleFile(e){
+    const files=e.target.files?Array.from(e.target.files):[];
+    if(fileRef.current)fileRef.current.value='';
+    await handleFiles(files);
+  }
+  function onDragEnter(e){
+    if(roleLinge)return;
+    e.preventDefault();e.stopPropagation();
+    dragCounterRef.current++;
+    setIsDragging(true);
+  }
+  function onDragOver(e){
+    if(roleLinge)return;
+    e.preventDefault();e.stopPropagation();
+  }
+  function onDragLeave(e){
+    if(roleLinge)return;
+    e.preventDefault();e.stopPropagation();
+    dragCounterRef.current=Math.max(0,dragCounterRef.current-1);
+    if(dragCounterRef.current===0)setIsDragging(false);
+  }
+  function onDrop(e){
+    if(roleLinge)return;
+    e.preventDefault();e.stopPropagation();
+    dragCounterRef.current=0;setIsDragging(false);
+    const files=e.dataTransfer.files?Array.from(e.dataTransfer.files).filter(f=>f.name.toLowerCase().endsWith('.docx')):[];
+    if(files.length===0){setError('Seuls les fichiers Word (.docx) sont acceptés ici.');return;}
+    handleFiles(files);
   }
 
   async function advanceQueue(){
@@ -4556,12 +4585,12 @@ function GroupeView({userEmail,roleLinge}){
   }
 
   return(<div style={{display:'flex',flexDirection:'column',gap:10}}>
-    <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',padding:'8px 12px',background:'#ececea',borderRadius:8,border:'0.5px solid #d4d2c8'}}>
+    <div onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop} style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',padding:'8px 12px',background:isDragging?'#eff6ff':'#ececea',borderRadius:8,border:'0.5px solid '+(isDragging?'#378ADD':'#d4d2c8'),transition:'background .1s,border-color .1s'}}>
       <span style={{fontSize:13,fontWeight:500}}>Groupes à venir</span>
       <div style={{flex:1}}/>
       {!roleLinge&&(<>
         <input ref={fileRef} type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple style={{display:'none'}} onChange={handleFile}/>
-        <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={parsing} style={{padding:'6px 12px',fontSize:12,fontWeight:600,border:'0.5px solid #378ADD',borderRadius:6,cursor:'pointer',background:'#eff6ff',color:'#1e40af',opacity:parsing?0.6:1}}>{parsing?'Lecture…':'+ Uploader un ou plusieurs Word'}</button>
+        <button onClick={()=>fileRef.current&&fileRef.current.click()} disabled={parsing} style={{padding:'6px 12px',fontSize:12,fontWeight:600,border:'0.5px solid #378ADD',borderRadius:6,cursor:'pointer',background:'#eff6ff',color:'#1e40af',opacity:parsing?0.6:1}}>{parsing?'Lecture…':isDragging?'Dépose le(s) Word ici':'+ Uploader un ou plusieurs Word (ou glisse-dépose)'}</button>
         {queue.length>0&&<span style={{fontSize:11,fontWeight:600,color:'#1e40af',background:'#dbeafe',borderRadius:10,padding:'2px 8px'}}>{queue.length+' en attente'}</span>}
       </>)}
     </div>
@@ -4600,13 +4629,13 @@ function ExplicationsView({menuFicheUrl,saveMenuFicheUrl,roleLinge,explicationPd
   const [progress,setProgress]=useState(0);
   const [opening,setOpening]=useState(false);
   const [openError,setOpenError]=useState('');
+  const [isDragging,setIsDragging]=useState(false);
+  const dragCounterRef=useRef(0); // compte les dragenter/dragleave imbriqués (enfants du cadre) pour ne retirer le surlignage qu'à la sortie réelle
   const objectUrlRef=useRef(null); // révoqué à la fermeture/au démontage pour libérer la mémoire
 
   useEffect(()=>()=>{if(objectUrlRef.current)URL.revokeObjectURL(objectUrlRef.current);},[]);
 
-  async function handleFile(e){
-    const file=e.target.files&&e.target.files[0];
-    e.target.value='';
+  async function processFile(file){
     if(!file)return;
     if(file.type!=='application/pdf'&&!file.name.toLowerCase().endsWith('.pdf')){
       window.alert('Seuls les fichiers PDF sont acceptés. Pour un document Word, utilise "Enregistrer sous → PDF" avant de l\'importer ici.');
@@ -4625,6 +4654,34 @@ function ExplicationsView({menuFicheUrl,saveMenuFicheUrl,roleLinge,explicationPd
       setStatus('');
       window.alert('Échec de l\'envoi : '+(err&&err.message?err.message:'erreur inconnue')+'. Réessaie une fois la connexion rétablie.');
     }
+  }
+  function handleFile(e){
+    const file=e.target.files&&e.target.files[0];
+    e.target.value='';
+    processFile(file);
+  }
+  function onDragEnter(e){
+    if(!canEdit)return;
+    e.preventDefault();e.stopPropagation();
+    dragCounterRef.current++;
+    setIsDragging(true);
+  }
+  function onDragOver(e){
+    if(!canEdit)return;
+    e.preventDefault();e.stopPropagation(); // nécessaire pour autoriser le dépôt, sinon le navigateur ouvre le fichier lui-même
+  }
+  function onDragLeave(e){
+    if(!canEdit)return;
+    e.preventDefault();e.stopPropagation();
+    dragCounterRef.current=Math.max(0,dragCounterRef.current-1);
+    if(dragCounterRef.current===0)setIsDragging(false);
+  }
+  function onDrop(e){
+    if(!canEdit)return;
+    e.preventDefault();e.stopPropagation();
+    dragCounterRef.current=0;setIsDragging(false);
+    const file=e.dataTransfer.files&&e.dataTransfer.files[0];
+    processFile(file);
   }
   async function handleDelete(){
     if(!window.confirm('Retirer ce PDF ? Il faudra en renvoyer un pour que les explications réapparaissent.'))return;
@@ -4660,13 +4717,16 @@ function ExplicationsView({menuFicheUrl,saveMenuFicheUrl,roleLinge,explicationPd
     <div style={{fontSize:14,fontWeight:600,color:'#1a1a1a'}}>Fiches explications du menu</div>
 
     {canEdit&&(
-      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',justifyContent:'center'}}>
-        <input ref={fileInputRef} type="file" accept="application/pdf" onChange={handleFile} style={{display:'none'}}/>
-        <button onClick={()=>fileInputRef.current&&fileInputRef.current.click()} disabled={!!status} style={{padding:'9px 16px',fontSize:13,fontWeight:600,border:'none',borderRadius:8,background:'#378ADD',color:'#fff',cursor:status?'default':'pointer',opacity:status?0.6:1}}>
-          {explicationPdfMeta?'Remplacer le PDF':'Importer un PDF'}
-        </button>
-        {explicationPdfMeta&&!status&&<button onClick={handleDelete} style={{padding:'9px 14px',fontSize:13,border:'0.5px solid #ccc',borderRadius:8,background:'#fff',color:'#991b1b',cursor:'pointer'}}>Retirer</button>}
-        {status&&<span style={{fontSize:12,color:'#555'}}>{status} {progress}%</span>}
+      <div onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop} style={{display:'flex',flexDirection:'column',gap:8,alignItems:'center',padding:'14px 18px',borderRadius:10,border:'2px dashed '+(isDragging?'#378ADD':'transparent'),background:isDragging?'#eff6ff':'transparent',transition:'background .1s,border-color .1s'}}>
+        <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',justifyContent:'center'}}>
+          <input ref={fileInputRef} type="file" accept="application/pdf" onChange={handleFile} style={{display:'none'}}/>
+          <button onClick={()=>fileInputRef.current&&fileInputRef.current.click()} disabled={!!status} style={{padding:'9px 16px',fontSize:13,fontWeight:600,border:'none',borderRadius:8,background:'#378ADD',color:'#fff',cursor:status?'default':'pointer',opacity:status?0.6:1}}>
+            {explicationPdfMeta?'Remplacer le PDF':'Importer un PDF'}
+          </button>
+          {explicationPdfMeta&&!status&&<button onClick={handleDelete} style={{padding:'9px 14px',fontSize:13,border:'0.5px solid #ccc',borderRadius:8,background:'#fff',color:'#991b1b',cursor:'pointer'}}>Retirer</button>}
+          {status&&<span style={{fontSize:12,color:'#555'}}>{status} {progress}%</span>}
+        </div>
+        <div style={{fontSize:11,color:isDragging?'#378ADD':'#aaa'}}>{isDragging?'Dépose le PDF ici':'ou glisse-dépose un PDF ici'}</div>
       </div>
     )}
     {canEdit&&!explicationPdfMeta&&<div style={{fontSize:11,color:'#888',textAlign:'center',maxWidth:360}}>PDF uniquement (5 Mo environ, 8 Mo maximum). Pour un Word : "Enregistrer sous → PDF" avant d'importer.</div>}
