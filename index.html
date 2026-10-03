@@ -116,7 +116,7 @@ const {useState,useEffect,useLayoutEffect,useRef,useCallback}=React;
 // concrètes (ex. écrasement de données par un ancien mécanisme déjà corrigé ailleurs).
 // APP_VERSION doit être changé à chaque déploiement (ex. horodatage) pour que ce mécanisme
 // détecte la différence.
-const APP_VERSION='2026-10-02T09:00:00Z';
+const APP_VERSION='2026-10-02T10:00:00Z';
 let appVersionCheckInFlight=false;
 async function checkForNewAppVersion(reloadImmediately){
   if(appVersionCheckInFlight)return;
@@ -830,7 +830,14 @@ function CompoExport({onClose,compo,team,svcLabel,svcData}){
       {(() => {
         const allT=[...SALLE,...TERRASSE];
         const rangIdx=r=>Math.min(...((r.tableIds&&r.tableIds.length)?r.tableIds:['']).map(tn=>{const i=allT.indexOf(tn);return i===-1?999:i;}));
-        const sortedRangs=[...compo.rangs].sort((a,b)=>rangIdx(a)-rangIdx(b));
+        // Même priorité que les rangs AS pour un rang où un seul Maître d'Hôtel est affecté seul :
+        // passe en premier, puis tri par ordre des tables comme pour le reste.
+        const isTopTier=r=>(r.tableIds||[]).includes('AS')||(r.memberIds&&r.memberIds.length===1&&team.find(t=>t.id===r.memberIds[0])?.role==="Maître d'Hôtel");
+        const sortedRangs=[...compo.rangs].sort((a,b)=>{
+          const ta=isTopTier(a)?0:1,tb=isTopTier(b)?0:1;
+          if(ta!==tb)return ta-tb;
+          return rangIdx(a)-rangIdx(b);
+        });
         return sortedRangs.map(r=><RangRow key={r.id} rang={r}/>);
       })()}
       {Meuble?.active&&<ZoneRow label="Meuble" memberIds={Meuble.memberIds} bg="#fef3c7"/>}
