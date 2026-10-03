@@ -116,7 +116,7 @@ const {useState,useEffect,useLayoutEffect,useRef,useCallback}=React;
 // concrètes (ex. écrasement de données par un ancien mécanisme déjà corrigé ailleurs).
 // APP_VERSION doit être changé à chaque déploiement (ex. horodatage) pour que ce mécanisme
 // détecte la différence.
-const APP_VERSION='2026-10-02T10:00:00Z';
+const APP_VERSION='2026-10-03T09:00:00Z';
 let appVersionCheckInFlight=false;
 async function checkForNewAppVersion(reloadImmediately){
   if(appVersionCheckInFlight)return;
@@ -828,14 +828,16 @@ function CompoExport({onClose,compo,team,svcLabel,svcData}){
       <div style={{fontSize:11,fontWeight:700,color:'#1a1a1a',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4,textAlign:'center'}}>{svcLabel}</div>
       {Accueil?.active&&<ZoneRow label="Accueil" memberIds={Accueil.memberIds} bg="#dcfce7"/>}
       {(() => {
-        const allT=[...SALLE,...TERRASSE];
+        const allT=[...SALLE,...TERRASSE]; // AS en position 1 (juste après AQUA), puis le reste de la salle, puis la terrasse en commençant par la 15 : "AS d'abord puis ordre des tables" tombe directement de cet ordre
         const rangIdx=r=>Math.min(...((r.tableIds&&r.tableIds.length)?r.tableIds:['']).map(tn=>{const i=allT.indexOf(tn);return i===-1?999:i;}));
-        // Même priorité que les rangs AS pour un rang où un seul Maître d'Hôtel est affecté seul :
-        // passe en premier, puis tri par ordre des tables comme pour le reste.
-        const isTopTier=r=>(r.tableIds||[]).includes('AS')||(r.memberIds&&r.memberIds.length===1&&team.find(t=>t.id===r.memberIds[0])?.role==="Maître d'Hôtel");
+        const normRole=s=>(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z]/g,'');
+        // Groupe 1 : rangs où un Maître d'Hôtel est affecté seul (AS y compris, s'il est tenu par un
+        // Maître d'Hôtel seul). Groupe 2 : tous les autres rangs. Dans CHAQUE groupe séparément,
+        // AS d'abord puis ordre des tables (salle puis terrasse, 15 en tête).
+        const isSoloMdh=r=>!!(r.memberIds&&r.memberIds.length===1&&normRole(team.find(t=>t.id===r.memberIds[0])?.role)==='maitredhotel');
         const sortedRangs=[...compo.rangs].sort((a,b)=>{
-          const ta=isTopTier(a)?0:1,tb=isTopTier(b)?0:1;
-          if(ta!==tb)return ta-tb;
+          const ga=isSoloMdh(a)?0:1,gb=isSoloMdh(b)?0:1;
+          if(ga!==gb)return ga-gb;
           return rangIdx(a)-rangIdx(b);
         });
         return sortedRangs.map(r=><RangRow key={r.id} rang={r}/>);
