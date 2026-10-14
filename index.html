@@ -785,15 +785,20 @@ function CompoView({services,currentService,setCurrentService,tables,compos,setC
           return Object.entries(byMonth).sort((a,b)=>b[0].localeCompare(a[0])).map(([month,items])=>{
             const [y,m]=month.split('-');
             const monthLabel=new Date(parseInt(y),parseInt(m)-1,1).toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
-            const names={};const counts={};
+            // Regroupement par prénom : un même prénom peut avoir plusieurs ids (membre recréé dans le Planning,
+            // id "membre_<timestamp>" différent à chaque création), donc on additionne par nom et pas par id.
+            const idName={};const counts={};const disp={};
+            const nk=nm=>String(nm||'').trim().toLowerCase();
+            const addName=(id,nm)=>{const k=nk(nm);if(!k)return;idName[id]=k;if(!disp[k])disp[k]=String(nm).trim();if(!(k in counts))counts[k]=0;};
+            items.forEach(it=>{(it.teamSnapshot||[]).forEach(t=>addName(t.id,t.name));});
+            if(month===curMonth)team.forEach(t=>{if(!(t.id in idName))addName(t.id,t.name);});
             items.forEach(it=>{
-              (it.teamSnapshot||[]).forEach(t=>{names[t.id]=t.name;if(!(t.id in counts))counts[t.id]=0;});
               const outIds=(it.compo&&it.compo.zones&&it.compo.zones.Out&&it.compo.zones.Out.memberIds)||[];
-              [...new Set(outIds)].forEach(id=>{counts[id]=(counts[id]||0)+1;});
+              const outNames=new Set();
+              [...new Set(outIds)].forEach(id=>{const k=idName[id]||nk((team.find(x=>x.id===id)||{}).name);if(k)outNames.add(k);});
+              outNames.forEach(k=>{counts[k]=(counts[k]||0)+1;});
             });
-            if(month===curMonth)team.forEach(t=>{if(!(t.id in counts))counts[t.id]=0;if(!names[t.id])names[t.id]=t.name;});
-            Object.keys(counts).forEach(id=>{if(!names[id]){const t=team.find(x=>x.id===id);names[id]=t?t.name:id;}});
-            const rows=Object.keys(counts).map(id=>({id,name:names[id],n:counts[id]})).sort((a,b)=>b.n-a.n||a.name.localeCompare(b.name,'fr'));
+            const rows=Object.keys(counts).map(k=>({id:k,name:disp[k]||k,n:counts[k]})).sort((a,b)=>b.n-a.n||a.name.localeCompare(b.name,'fr'));
             return(<AccordionMonth key={month} monthLabel={monthLabel}>
               {rows.length===0&&<div style={{fontSize:12,color:'#aaa',padding:'6px 4px'}}>Aucun service sauvegardé ce mois.</div>}
               {rows.map(r=>(<div key={r.id} style={{background:'#fff',borderRadius:8,padding:'7px 10px',marginBottom:3,border:'0.5px solid #e5e7eb',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
