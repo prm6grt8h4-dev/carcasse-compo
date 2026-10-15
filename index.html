@@ -354,12 +354,10 @@ function getMvtData(tables,services,currentService){
   const plNeeded=[],plReleased=[],piedNeeded=[],piedReleased=[],fauteuilsUp=[],fauteuilsDn=[],cavallinoUp=[],cavallinoDn=[];
   allT.forEach(tn=>{const pd=prevSvc[tn]||null,cd=currSvc[tn]||null;const pAct=pd&&pd.covers>0,cAct=cd&&cd.covers>0;const pPl=pAct?pd.plateau:null,cPl=cAct?cd.plateau:null;const pCons=pAct&&pd.isConsole,cCons=cAct&&cd.isConsole;const pPied=pPl?piedFromPlateau(pPl):null,cPied=cPl?piedFromPlateau(cPl):null;if(pAct&&!cAct){if(pPl)plReleased.push({tn,pl:pPl,pied:pPied});piedReleased.push({tn,pied:pPied});}else if(!pAct&&cAct){if(cPl)plNeeded.push({tn,pl:cPl,pied:cPied});piedNeeded.push({tn,pied:cPied});}else if(pAct&&cAct){if(pPl!==cPl){if(pPl)plReleased.push({tn,pl:pPl,pied:pPied});if(cPl)plNeeded.push({tn,pl:cPl,pied:cPied});}if(pPied!==cPied){piedReleased.push({tn,pied:pPied});piedNeeded.push({tn,pied:cPied});}}if(pAct&&!cAct){if(!pCons){fauteuilsDn.push({tn,n:pd.covers});const cv=getCavallino(tn,pd.covers);if(cv>0)cavallinoDn.push({tn,n:cv});}}else if(!pAct&&cAct){if(!cCons){fauteuilsUp.push({tn,n:cd.covers});const cv=getCavallino(tn,cd.covers);if(cv>0)cavallinoUp.push({tn,n:cv});}}else if(pAct&&cAct){if(!pCons&&!cCons){const df=cd.covers-pd.covers;if(df>0)fauteuilsUp.push({tn,n:df});if(df<0)fauteuilsDn.push({tn,n:-df});}else if(pCons&&!cCons)fauteuilsUp.push({tn,n:cd.covers});else if(!pCons&&cCons)fauteuilsDn.push({tn,n:pd.covers});const pc=getCavallino(tn,pCons?0:pd.covers),cc=getCavallino(tn,cCons?0:cd.covers);if(cc>pc)cavallinoUp.push({tn,n:cc-pc});if(pc>cc)cavallinoDn.push({tn,n:pc-cc});}});
   const plR=match1to1(plNeeded,plReleased,'pl');const piR=match1to1(piedNeeded,piedReleased,'pied');const fTr=computeTransfers(fauteuilsUp,fauteuilsDn);const cTr=computeTransfers(cavallinoUp,cavallinoDn);
-  // Batteries: only for the last service before mar-d-next
-  // = number of active tables (covers>0) in mar-d-next, 1 battery per table regardless of pied or OFF
+  // Batteries : affichées sur le service concerné lui-même (Mardi suivant, et le service qui suit le Jeudi Dîner = Vendredi Déjeuner).
+  // = nombre de tables actives (covers>0) de CE service, 1 batterie par table quel que soit le pied ou OFF
   let batteries=0;
-  const marNextSvc=tables['mar-d-next'];
-  const isLastBeforeNext=currentService==='sam-d'||(()=>{const idx2=services.findIndex(s=>s.id===currentService);const nextSvc=services[idx2+1];return nextSvc&&nextSvc.id==='mar-d-next';})();
-  if(isLastBeforeNext&&marNextSvc){[...SALLE,...TERRASSE].forEach(tn=>{const d=marNextSvc[tn];if(d&&d.covers>0)batteries++;});}
+  if(currentService==='mar-d-next'||currentService==='ven-dj'||currentService==='ven-dj-next'){[...SALLE,...TERRASSE].forEach(tn=>{const d=currSvc[tn];if(d&&d.covers>0)batteries++;});}
   return{plAscents:plR.ascents,plDescents:plR.descents,plTransfers:plR.transfers,piedAscents:piR.ascents,piedDescents:piR.descents,piedTransfers:piR.transfers,fTr,cTr,upN220:cN.n220,upN260:cN.n260,upN280:cN.n280,batteries,prevLabel:services.find(s=>s.id===prevId)?.label??prevId};
 }
 
@@ -573,7 +571,7 @@ function MvtBlock({plAscents,plDescents,plTransfers,piedAscents,piedDescents,pie
   if(n220>0)upRows.push(<Line key="n220"><Bold>{n220}</Bold>{' nappe'+(n220>1?'s':'')+' '+PL+'220'}</Line>);
   if(n260>0)upRows.push(<Line key="n260"><Bold>{n260}</Bold>{' nappe'+(n260>1?'s':'')+' '+PL+'260'}</Line>);
   if(n280>0)upRows.push(<Line key="n280"><Bold>{n280}</Bold>{' nappe'+(n280>1?'s':'')+' '+PL+'280'}</Line>);
-  if(bat>0)upRows.push(<Line key="bat"><Bold>{bat}</Bold>{' batterie'+(bat>1?'s':'')+' (Mardi suivant)'}</Line>);
+  if(bat>0)upRows.push(<Line key="bat"><Bold>{bat}</Bold>{' batterie'+(bat>1?'s':'')+' à monter'}</Line>);
   const dnRows=[];
   groupByPied(pd3).forEach(g=>{const n=g.tns.length;const label=g.pied==='gros'?(n>1?'gros pieds':'gros pied'):(n>1?'petits pieds':'petit pied');dnRows.push(<Line key={'pdn_'+g.pied}><Bold>{n===1?'Le '+label:'Les '+label}</Bold>{' de '}{joinTns(g.tns)}</Line>);});
   groupByPl(pd2).forEach(g=>{const n=g.tns.length;dnRows.push(<Line key={'pldsc_'+g.pl}><Bold>{n===1?'Le plateau '+PL+g.pl:'Les plateaux '+PL+g.pl}</Bold>{' de '}{joinTns(g.tns)}</Line>);});
