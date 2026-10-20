@@ -3156,7 +3156,10 @@ function ReceptionExport({onClose,dateStr,vals,lingeItems,title,withElis}){
   </div>);
 }
 
-function ReceptionLingeView({userEmail,lingeItems,kind}){
+function ReceptionLingeView({userEmail,lingeItems:lingeItemsAll,kind}){
+  // Linge HS : certains articles ne sont jamais déclarés HS, on les masque (saisie, export, récap)
+  const HS_EXCLUDED=['srv_noire','gant','cache_petit','cache_moyen','cache_ovale','riedel','srv_cafe'];
+  const lingeItems=kind==='hs'?{...lingeItemsAll,blanchisseur:lingeItemsAll.blanchisseur.filter(it=>!HS_EXCLUDED.includes(it.id))}:lingeItemsAll;
   // kind==='hs' : onglet "Linge HS" (même fonctionnement que la réception, Blanchisseur uniquement, + récap semaine)
   const isHS=kind==='hs';
   const COLL=isHS?'linge_hs':COLL;
