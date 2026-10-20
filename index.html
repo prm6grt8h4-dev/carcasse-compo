@@ -3116,7 +3116,8 @@ function CaisseView({userEmail}){
   </div>);
 }
 
-function ReceptionExport({onClose,dateStr,vals,lingeItems}){
+function ReceptionExport({onClose,dateStr,vals,lingeItems,title,withElis}){
+  const ttl=title||'Réception du linge';
   const outerRef=useRef(null),contentRef=useRef(null);
   const [scale,setScale]=useState(1);
   useEffect(()=>{
@@ -3136,17 +3137,17 @@ function ReceptionExport({onClose,dateStr,vals,lingeItems}){
   }
   return(<div style={{position:'fixed',inset:0,zIndex:300,background:'#f5f4f0',display:'flex',flexDirection:'column',overflow:'hidden'}}>
     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 14px',borderBottom:'1px solid #d4d2c8',background:'#fff',flexShrink:0}}>
-      <div><div style={{fontSize:13,fontWeight:700}}>Réception du linge</div><div style={{fontSize:10,color:'#888',marginTop:1}}>{dateStr}</div></div>
+      <div><div style={{fontSize:13,fontWeight:700}}>{ttl}</div><div style={{fontSize:10,color:'#888',marginTop:1}}>{dateStr}</div></div>
       <button onClick={onClose} style={{background:'#1a1a1a',color:'#fff',border:'none',borderRadius:6,padding:'7px 14px',fontSize:12,cursor:'pointer'}}>Fermer</button>
     </div>
     <div ref={outerRef} style={{flex:1,overflow:'hidden',display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'8px'}}>
       <div ref={contentRef} style={{width:420,transformOrigin:'top center',transform:'scale('+scale+')'}}>
-        <div style={{fontSize:11,fontWeight:700,color:'#1a1a1a',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6,textAlign:'center'}}>{'Réception du linge · '+dateStr}</div>
+        <div style={{fontSize:11,fontWeight:700,color:'#1a1a1a',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6,textAlign:'center'}}>{ttl+' · '+dateStr}</div>
         <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
           <thead><tr><th style={{...thStyle,textAlign:'left'}}>Article</th><th style={thStyle}>Quantité</th></tr></thead>
           <tbody>
             {renderSection(lingeItems.blanchisseur,'Blanchisseur')}
-            {renderSection(lingeItems.elis,'Elis')}
+            {withElis&&renderSection(lingeItems.elis,'Elis')}
           </tbody>
         </table>
         <div style={{fontSize:8,color:'#aaa',textAlign:'right',marginTop:6}}>Le Louis XV – Alain Ducasse à l'Hôtel de Paris · Monaco</div>
@@ -3155,7 +3156,15 @@ function ReceptionExport({onClose,dateStr,vals,lingeItems}){
   </div>);
 }
 
-function ReceptionLingeView({userEmail,lingeItems}){
+function ReceptionLingeView({userEmail,lingeItems,kind}){
+  // kind==='hs' : onglet "Linge HS" (même fonctionnement que la réception, Blanchisseur uniquement, + récap semaine)
+  const isHS=kind==='hs';
+  const COLL=isHS?'linge_hs':COLL;
+  const TITLE=isHS?'Linge HS':'Réception du linge';
+  const [showWeekPicker,setShowWeekPicker]=useState(false);
+  const [weekLoading,setWeekLoading]=useState(false);
+  const [weekOptions,setWeekOptions]=useState([]);
+  const [weekExport,setWeekExport]=useState(null);
   const [dateConfirmed,setDateConfirmed]=useState(false);
   const [dateDraft,setDateDraft]=useState('');
   const [dateObj,setDateObj]=useState(null);
@@ -3175,7 +3184,6 @@ function ReceptionLingeView({userEmail,lingeItems}){
   function buildVals(){
     const v={};
     lingeItems.blanchisseur.forEach(it=>{v[it.id]='';});
-    lingeItems.elis.forEach(it=>{v[it.id]='';});
     return v;
   }
 
@@ -3190,7 +3198,7 @@ function ReceptionLingeView({userEmail,lingeItems}){
     const fb=getFirebase();if(!fb)return setVals(buildVals());
     const key=dateKey(d);
     try{
-      const ref=fb.doc(fb.db,'linge_reception',key);
+      const ref=fb.doc(fb.db,COLL,key);
       const snap=await fb.getDoc(ref);
       if(snap.exists()&&snap.data().vals){setVals({...buildVals(),...snap.data().vals});}
       else{setVals(buildVals());}
@@ -3205,7 +3213,7 @@ function ReceptionLingeView({userEmail,lingeItems}){
     setSaving(true);
     const key=dateKey(dateObj);
     try{
-      const ref=fb.doc(fb.db,'linge_reception',key);
+      const ref=fb.doc(fb.db,COLL,key);
       await fb.setDoc(ref,{date:key,dateDisplay:fmtDateFR(dateObj),vals,savedBy:userEmail,savedAt:new Date().toISOString()});
     }catch(e){console.error(e);}
     setSaving(false);
@@ -3215,13 +3223,34 @@ function ReceptionLingeView({userEmail,lingeItems}){
     setShowArchive(true);setArchiveLoading(true);
     const fb=getFirebase();if(!fb){setArchiveLoading(false);return;}
     try{
-      const col=fb.collection(fb.db,'linge_reception');
+      const col=fb.collection(fb.db,COLL);
       const q=fb.query(col,fb.orderBy('date','desc'),fb.limit(200));
       const snap=await fb.getDocs(q);
       const items=[];snap.forEach(d=>items.push(d.data()));
       setArchive(items);
     }catch(e){console.error(e);}
     setArchiveLoading(false);
+  }
+
+  async function openWeekPicker(){
+    setShowWeekPicker(true);setWeekLoading(true);setWeekExport(null);
+    const fb=getFirebase();if(!fb){setWeekLoading(false);return;}
+    try{
+      const col=fb.collection(fb.db,COLL);
+      const q=fb.query(col,fb.orderBy('date','desc'),fb.limit(200));
+      const snap=await fb.getDocs(q);
+      const byWeek={};
+      snap.forEach(d=>{const it=d.data();if(!it.date)return;const wk=weekKeyFor(it.date);if(!byWeek[wk])byWeek[wk]=[];byWeek[wk].push(it);});
+      setWeekOptions(Object.entries(byWeek).map(([wk,entries])=>({weekKey:wk,label:weekLabelFor(wk),entries})).sort((x,y)=>y.weekKey.localeCompare(x.weekKey)));
+    }catch(e){console.error(e);}
+    setWeekLoading(false);
+  }
+  function selectWeek(opt){
+    const tot={};
+    lingeItems.blanchisseur.forEach(it=>{tot[it.id]=0;});
+    opt.entries.forEach(en=>{const ev=en.vals||{};Object.keys(tot).forEach(id=>{tot[id]+=(parseInt(ev[id])||0);});});
+    const out={};Object.keys(tot).forEach(id=>{out[id]=tot[id]?String(tot[id]):'';});
+    setWeekExport({label:opt.label,vals:out});setShowWeekPicker(false);
   }
 
   function groupByMonth(items){
@@ -3234,14 +3263,15 @@ function ReceptionLingeView({userEmail,lingeItems}){
 
   return(<div style={{display:'flex',flexDirection:'column',gap:10}}>
     <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',padding:'8px 12px',background:'#ececea',borderRadius:8,border:'0.5px solid #d4d2c8'}}>
-      <span style={{fontSize:13,fontWeight:500}}>Réception du linge</span>
+      <span style={{fontSize:13,fontWeight:500}}>{TITLE}</span>
       <div style={{flex:1}}/>
+      {isHS&&<button onClick={openWeekPicker} style={{padding:'6px 12px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Récap semaine</button>}
       <button onClick={openArchive} style={{padding:'6px 12px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Archive</button>
       {vals&&<button onClick={async()=>{await saveToFirebase();setShowExport(true);}} disabled={saving} style={{padding:'6px 12px',fontSize:12,fontWeight:600,border:'0.5px solid #86efac',borderRadius:6,cursor:'pointer',background:'#dcfce7',color:'#166534',opacity:saving?0.6:1}}>{saving?'Sauvegarde…':'Sauvegarder'}</button>}
     </div>
 
     {!dateConfirmed&&(<div style={{background:'#fff',borderRadius:10,padding:16,border:'0.5px solid #d4d2c8'}}>
-      <div style={{fontSize:13,fontWeight:500,marginBottom:10}}>Date de la réception</div>
+      <div style={{fontSize:13,fontWeight:500,marginBottom:10}}>{isHS?'Date':'Date de la réception'}</div>
       <div style={{display:'flex',gap:8,alignItems:'center'}}>
         <input type="date" value={dateDraft} onChange={e=>setDateDraft(e.target.value)} style={{flex:1,padding:'9px 12px',fontSize:14,border:'0.5px solid #ccc',borderRadius:8,outline:'none'}}/>
         <button onClick={confirmDate} style={{padding:'9px 18px',fontSize:13,fontWeight:600,border:'0.5px solid #378ADD',borderRadius:8,cursor:'pointer',background:'#378ADD',color:'#fff'}}>Confirmer</button>
@@ -3266,19 +3296,28 @@ function ReceptionLingeView({userEmail,lingeItems}){
             <td style={{fontSize:12,color:'#1a1a1a',padding:'4px 8px',borderBottom:'0.5px solid #f0efe9'}}>{it.label}</td>
             <td style={{borderBottom:'0.5px solid #f0efe9',borderLeft:'0.5px solid #f0efe9'}}><input value={v} onChange={e=>setCell(it.id,e.target.value)} onFocus={e=>e.target.select()} inputMode="numeric" style={inputStyle}/></td>
           </tr>);})}
-          <tr><td colSpan={2} style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.06em',background:'#1a1a1a',color:'#fff',padding:'4px 8px'}}>Elis</td></tr>
-          {lingeItems.elis.map((it,i)=>{const v=vals[it.id]||'';return(<tr key={it.id} style={{background:i%2===0?'#fff':'#fafaf9'}}>
-            <td style={{fontSize:12,color:'#1a1a1a',padding:'4px 8px',borderBottom:'0.5px solid #f0efe9'}}>{it.label}</td>
-            <td style={{borderBottom:'0.5px solid #f0efe9',borderLeft:'0.5px solid #f0efe9'}}><input value={v} onChange={e=>setCell(it.id,e.target.value)} onFocus={e=>e.target.select()} inputMode="numeric" style={inputStyle}/></td>
-          </tr>);})}
         </tbody>
       </table>
+    </div>)}
+
+    {isHS&&showWeekPicker&&(<div onClick={e=>{if(e.target===e.currentTarget)setShowWeekPicker(false);}} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200}}>
+      <div style={{background:'#f5f4f0',borderRadius:12,padding:20,width:360,maxHeight:'80vh',overflowY:'auto',border:'0.5px solid #ddd'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+          <span style={{fontWeight:700,fontSize:14}}>Récap semaine</span>
+          <button onClick={()=>setShowWeekPicker(false)} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#888'}}>×</button>
+        </div>
+        {weekLoading&&<div style={{textAlign:'center',color:'#aaa',fontSize:13,padding:'20px 0'}}>Chargement…</div>}
+        {!weekLoading&&weekOptions.length===0&&<div style={{textAlign:'center',color:'#aaa',fontSize:13,padding:'20px 0'}}>Aucune saisie enregistrée.</div>}
+        {!weekLoading&&weekOptions.map(opt=>(
+          <button key={opt.weekKey} onClick={()=>selectWeek(opt)} style={{display:'block',width:'100%',textAlign:'left',padding:'10px 12px',marginBottom:6,fontSize:13,border:'0.5px solid #e5e7eb',borderRadius:8,cursor:'pointer',background:'#fff',color:'#1a1a1a'}}>{opt.label}</button>
+        ))}
+      </div>
     </div>)}
 
     {showArchive&&(<div onClick={e=>{if(e.target===e.currentTarget)setShowArchive(false);}} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200}}>
       <div style={{background:'#f5f4f0',borderRadius:12,padding:20,width:360,maxHeight:'80vh',overflowY:'auto',border:'0.5px solid #ddd'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-          <span style={{fontWeight:700,fontSize:14}}>Archive réception</span>
+          <span style={{fontWeight:700,fontSize:14}}>{isHS?'Archive linge HS':'Archive réception'}</span>
           <button onClick={()=>setShowArchive(false)} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#888'}}>×</button>
         </div>
         {archiveLoading&&<div style={{textAlign:'center',color:'#aaa',fontSize:13,padding:'20px 0'}}>Chargement…</div>}
@@ -3294,7 +3333,7 @@ function ReceptionLingeView({userEmail,lingeItems}){
               <div style={{fontSize:12,fontWeight:600,color:'#1a1a1a',textTransform:'capitalize'}}>{fullDate}</div>
               <div style={{display:'flex',gap:6,alignItems:'center'}}>
                 <button onClick={()=>{setShowArchive(false);setVals({...buildVals(),...(it.vals||{})});const parts2=(it.dateDisplay||'').split('/');if(parts2.length===3)setDateObj(new Date(parseInt(parts2[2]),parseInt(parts2[1])-1,parseInt(parts2[0])));setDateConfirmed(true);setShowExport(true);}} style={{fontSize:11,padding:'3px 10px',border:'0.5px solid #86efac',borderRadius:6,cursor:'pointer',background:'#dcfce7',color:'#166534'}}>Voir</button>
-                {<button onClick={async()=>{const fb=getFirebase();if(!fb)return;try{await fb.deleteDoc(fb.doc(fb.db,'linge_reception',it.date));setArchive(prev=>prev.filter(x=>x.date!==it.date));}catch(e){console.error(e);}}} style={{fontSize:16,padding:'2px 8px',border:'none',borderRadius:4,cursor:'pointer',background:'#fee2e2',color:'#991b1b',lineHeight:1}}>×</button>}
+                {<button onClick={async()=>{const fb=getFirebase();if(!fb)return;try{await fb.deleteDoc(fb.doc(fb.db,COLL,it.date));setArchive(prev=>prev.filter(x=>x.date!==it.date));}catch(e){console.error(e);}}} style={{fontSize:16,padding:'2px 8px',border:'none',borderRadius:4,cursor:'pointer',background:'#fee2e2',color:'#991b1b',lineHeight:1}}>×</button>}
               </div>
             </div>);})}
           </AccordionMonth>);
@@ -3302,7 +3341,8 @@ function ReceptionLingeView({userEmail,lingeItems}){
       </div>
     </div>)}
 
-    {showExport&&vals&&<ReceptionExport onClose={()=>setShowExport(false)} dateStr={fmtDateFR(dateObj)} vals={vals} lingeItems={lingeItems}/>}
+    {showExport&&vals&&<ReceptionExport onClose={()=>setShowExport(false)} dateStr={fmtDateFR(dateObj)} vals={vals} lingeItems={lingeItems} title={TITLE} withElis={false}/>}
+    {isHS&&weekExport&&<ReceptionExport onClose={()=>setWeekExport(null)} dateStr={weekExport.label} vals={weekExport.vals} lingeItems={lingeItems} title={'Linge HS · Récap semaine'} withElis={false}/>}
   </div>);
 }
 
@@ -4995,7 +5035,7 @@ function App(){
   const [authState,setAuthState]=useState('checking');
   const [userEmail,setUserEmail]=useState('');
   const [tab,setTab]=useState('carcasse');
-  const [lingeSubTab,setLingeSubTab]=useState('journalier'); // 'journalier' | 'reception'
+  const [lingeSubTab,setLingeSubTab]=useState('journalier'); // 'journalier' | 'reception' | 'hs'
   const [fromageSubTab,setFromageSubTab]=useState('carte'); // 'compte' | 'carte'
   const [services,setServices]=useState(DEFAULT_SERVICES);
   const [tables,setTables]=useState(()=>buildDefault(DEFAULT_SERVICES));
@@ -5638,9 +5678,11 @@ function App(){
         <div style={{display:'flex',gap:6,justifyContent:'center'}}>
           <button onClick={()=>setLingeSubTab('journalier')} style={{padding:'7px 16px',fontSize:12,fontWeight:lingeSubTab==='journalier'?700:400,borderRadius:8,border:'none',cursor:'pointer',background:lingeSubTab==='journalier'?'#378ADD':'#ececea',color:lingeSubTab==='journalier'?'#fff':'#555'}}>Compte journalier</button>
           <button onClick={()=>setLingeSubTab('reception')} style={{padding:'7px 16px',fontSize:12,fontWeight:lingeSubTab==='reception'?700:400,borderRadius:8,border:'none',cursor:'pointer',background:lingeSubTab==='reception'?'#378ADD':'#ececea',color:lingeSubTab==='reception'?'#fff':'#555'}}>Réception du linge</button>
+          <button onClick={()=>setLingeSubTab('hs')} style={{padding:'7px 16px',fontSize:12,fontWeight:lingeSubTab==='hs'?700:400,borderRadius:8,border:'none',cursor:'pointer',background:lingeSubTab==='hs'?'#378ADD':'#ececea',color:lingeSubTab==='hs'?'#fff':'#555'}}>Linge HS</button>
         </div>
         {lingeSubTab==='journalier'&&<LingeView currentService={currentService} setCurrentService={setCurrentService} services={services} tables={tables} userEmail={userEmail} lingeItems={lingeItems} setLingeItems={setLingeItems} saveLingeItems={saveLingeItems}/>}
         {lingeSubTab==='reception'&&<ReceptionLingeView userEmail={userEmail} lingeItems={lingeItems}/>}
+        {lingeSubTab==='hs'&&<ReceptionLingeView userEmail={userEmail} lingeItems={lingeItems} kind="hs"/>}
       </div>)}
       {tab==='fromage'&&(<div style={{display:'flex',flexDirection:'column',gap:10}}>
         <div style={{display:'flex',gap:6,justifyContent:'center'}}>
