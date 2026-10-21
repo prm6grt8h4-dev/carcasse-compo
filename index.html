@@ -1109,6 +1109,26 @@ function plnNormalizeTeam(team){
   });
 }
 
+// ─── Changement de statut daté (promotion) ────────────────────────────────
+// Un membre peut porter roleChanges:[{from:'YYYY-MM-DD',role,group}] + baseRole/baseGroup (statut d'origine).
+// Le statut affiché dépend de la date de référence : le dernier changement dont 'from' <= date de référence.
+// Planning : référence = dernier jour de la semaine affichée (la semaine qui contient la date bascule en entier).
+// Compo : référence = aujourd'hui. Recalculé à chaque fois depuis baseRole, donc réversible (retour sur une semaine passée).
+function plnWeekEndISO(startISO){const d=new Date(startISO+'T12:00:00');d.setDate(d.getDate()+6);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function plnProjectMember(m,asOfISO){
+  const ch=m&&m.roleChanges;
+  if(!ch||!ch.length)return m;
+  let role=m.baseRole!==undefined?m.baseRole:m.role,group=m.baseGroup!==undefined?m.baseGroup:m.group;
+  [...ch].sort((a,b)=>String(a.from).localeCompare(String(b.from))).forEach(c=>{if(c.from&&c.from<=asOfISO){role=c.role;group=c.group;}});
+  if(role===m.role&&group===m.group)return m;
+  return {...m,role,group};
+}
+function plnProjectTeam(team,asOfISO){
+  let changed=false;
+  const out=team.map(m=>{const p=plnProjectMember(m,asOfISO);if(p!==m)changed=true;return p;});
+  return changed?out:team;
+}
+
 // ─── Planning : composant ─────────────────────────────────────────────────
 function PlanningView({planning,setPlanning,savePlanning,canManageSettings,roleLinge}){
   const [previewEntry,setPreviewEntry]=useState(null);
@@ -1147,6 +1167,7 @@ function PlanningView({planning,setPlanning,savePlanning,canManageSettings,roleL
   const [editDraft,setEditDraft]=useState({horaire:'',tache:'',alerte:''});
   const [manageOpen,setManageOpen]=useState(false);
   const [newRoleDraftFor,setNewRoleDraftFor]=useState(null);
+  const [promoDraft,setPromoDraft]=useState({});
   const [newRoleText,setNewRoleText]=useState('');
   const [pendingChoiceQueue,setPendingChoiceQueue]=useState([]);
   const pendingChoice=pendingChoiceQueue[0]||null;
@@ -1470,11 +1491,58 @@ function PlanningView({planning,setPlanning,savePlanning,canManageSettings,roleL
   // Chaque action ci-dessous écrit immédiatement, via une transaction qui relit la version la plus
   // fraîche du serveur juste avant d'écrire — donc jamais de risque d'écraser ce qu'un autre appareil
   // aurait changé entre-temps sur quelqu'un d'autre.
+  // Applique les changements de statut datés à l'équipe pour la semaine qui commence à startISO
+  // (et replace dans son nouveau bloc de groupe quiconque a changé de groupe).
+  function projectTeamForWeek(teamArr,startISO){
+    const asOf=plnWeekEndISO(startISO);
+    const movedIds=[];
+    let out=teamArr.map(m=>{const p=plnProjectMember(m,asOf);if(p!==m&&p.group!==m.group)movedIds.push(m.id);return p;});
+    movedIds.forEach(id=>{out=moveIntoGroupBlock(out,id);});
+    return out;
+  }
   function updateMember(id,field,value){
     updateTeamTransactional(freshTeam=>{
-      let newTeam=freshTeam.map(m=>m.id===id?{...m,[field]:value}:m);
+      let newTeam=freshTeam.map(m=>{
+        if(m.id!==id)return m;
+        // Membre avec changements de statut datés : modifier statut/groupe ici corrige l'entrée en vigueur sur la semaine affichée (ou le statut d'origine si aucune n'est encore en vigueur)
+        if((field==='role'||field==='group')&&m.roleChanges&&m.roleChanges.length){
+          const asOf=plnWeekEndISO(startDateISO);
+          const cur=[...m.roleChanges].sort((a,b)=>String(a.from).localeCompare(String(b.from))).reverse().find(c=>c.from&&c.from<=asOf);
+          if(cur)return {...m,[field]:value,roleChanges:m.roleChanges.map(c=>c===cur||c.from===cur.from?{...c,[field]:value}:c)};
+          return {...m,[field]:value,[field==='role'?'baseRole':'baseGroup']:value};
+        }
+        return {...m,[field]:value};
+      });
       if(field==='group')newTeam=moveIntoGroupBlock(newTeam,id);
       return newTeam;
+    });
+  }
+  function addPromotion(id){
+    const m=team.find(x=>x.id===id);if(!m)return;
+    const d=promoDraft[id]||{};
+    const role=d.role,from=d.from;
+    if(!role||!from)return;
+    const group=d.group||(team.find(x=>x.role===role)||{}).group||m.group;
+    updateTeamTransactional(freshTeam=>{
+      const t=freshTeam.map(x=>{
+        if(x.id!==id)return x;
+        const base=(x.roleChanges&&x.roleChanges.length)?{}:{baseRole:x.role,baseGroup:x.group};
+        return {...x,...base,roleChanges:[...(x.roleChanges||[]).filter(c=>c.from!==from),{from,role,group}]};
+      });
+      return projectTeamForWeek(t,startDateISO);
+    });
+    ensureRoleKnown(role);
+    setPromoDraft(prev=>({...prev,[id]:{}}));
+  }
+  function removePromotion(id,from){
+    updateTeamTransactional(freshTeam=>{
+      const t=freshTeam.map(x=>{
+        if(x.id!==id)return x;
+        const ch=(x.roleChanges||[]).filter(c=>c.from!==from);
+        if(!ch.length){const {roleChanges,baseRole,baseGroup,...rest}=x;return {...rest,role:baseRole!==undefined?baseRole:x.role,group:baseGroup!==undefined?baseGroup:x.group};}
+        return {...x,roleChanges:ch};
+      });
+      return projectTeamForWeek(t,startDateISO);
     });
   }
   function moveMember(i,dir){
@@ -1638,7 +1706,7 @@ function PlanningView({planning,setPlanning,savePlanning,canManageSettings,roleL
     const cheffeShift=mod(weeksDiff,3);
     const commisToggle=mod(weeksDiff,2)!==0;
     const dayList=['mar','mer','jeu'];
-    const relevantTeam=team.filter(m=>!(m.dateFin&&m.dateFin<newStartISO)); // exclut ceux dont le dernier jour est déjà passé avant le début de cette nouvelle semaine (sinon ils étaient recopiés sans vérification)
+    const relevantTeam=projectTeamForWeek(team.filter(m=>!(m.dateFin&&m.dateFin<newStartISO)),newStartISO); // exclut ceux dont le dernier jour est déjà passé avant le début de cette nouvelle semaine (sinon ils étaient recopiés sans vérification)
     relevantTeam.forEach(member=>{
       const oldCell=(d)=>(schedule[member.id]&&schedule[member.id][d])||{};
       const {pattern:fixedPattern,rangFixed}=getFixedPatterns(member.id,member);
@@ -1709,7 +1777,7 @@ function PlanningView({planning,setPlanning,savePlanning,canManageSettings,roleL
         // une donnée globale toujours à jour, pas un instantané figé à la date de sauvegarde de cette
         // semaine précise. On ne garde de l'archive que le planning (schedule/notes/dayOpen), et on
         // filtre l'équipe ACTUELLE selon qui était présent cette semaine-là (date de fin).
-        const filteredTeam=team.filter(m=>!(m.dateFin&&m.dateFin<newStartISO));
+        const filteredTeam=projectTeamForWeek(team.filter(m=>!(m.dateFin&&m.dateFin<newStartISO)),newStartISO);
         commit({...loaded,team:filteredTeam,startDateISO:newStartISO});
       }else{
         applyAutoWeek(newStartISO,weeksDiff);
@@ -1831,6 +1899,27 @@ function PlanningView({planning,setPlanning,savePlanning,canManageSettings,roleL
           ):(
             <button onClick={()=>removeMember(m.id)} style={{border:'none',background:'#fee2e2',color:'#991b1b',borderRadius:6,padding:'4px 8px',fontSize:12,cursor:'pointer'}}>Supprimer</button>
           )}
+          {(()=>{
+            const d=promoDraft[m.id]||{};
+            const guessGroup=d.group||(d.role&&(team.find(x=>x.role===d.role)||{}).group)||m.group;
+            const setD=patch=>setPromoDraft(prev=>({...prev,[m.id]:{...(prev[m.id]||{}),...patch}}));
+            const sel={fontSize:11,padding:5,border:'0.5px solid #d4d2c8',borderRadius:6};
+            return(<div style={{flexBasis:'100%',display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',paddingLeft:6,marginBottom:4}}>
+              <span style={{fontSize:10,color:'#888'}}>Changement de statut :</span>
+              {[...(m.roleChanges||[])].sort((a,b)=>String(a.from).localeCompare(String(b.from))).map(c=>(
+                <span key={c.from} style={{fontSize:10,color:'#92400e',background:'#fef3c7',borderRadius:6,padding:'3px 7px',display:'inline-flex',alignItems:'center',gap:4}}>{c.role+' dès le '+fmtDateFR(new Date(c.from+'T12:00:00'))}<button onClick={()=>removePromotion(m.id,c.from)} style={{border:'none',background:'none',color:'#991b1b',cursor:'pointer',fontSize:13,lineHeight:1,padding:0}}>×</button></span>
+              ))}
+              <select value={d.role||''} onChange={e=>setD({role:e.target.value,group:undefined})} style={{...sel,width:140}}>
+                <option value="">Nouveau statut…</option>
+                {knownRoles.map(r=><option key={r} value={r}>{r}</option>)}
+              </select>
+              <select value={guessGroup} onChange={e=>setD({group:e.target.value})} style={sel}>
+                {Object.keys(PLN_GROUPS).map(k=><option key={k} value={k}>{PLN_GROUPS[k].label}</option>)}
+              </select>
+              <input type="date" value={d.from||''} onChange={e=>setD({from:e.target.value})} style={{fontSize:11,padding:'4px 6px',border:'0.5px solid #d4d2c8',borderRadius:6}}/>
+              <button onClick={()=>addPromotion(m.id)} disabled={!d.role||!d.from} style={{border:'0.5px solid #ccc',background:'#f9f9f7',borderRadius:6,padding:'4px 8px',fontSize:11,cursor:(d.role&&d.from)?'pointer':'default',opacity:(d.role&&d.from)?1:0.5}}>Programmer</button>
+            </div>);
+          })()}
         </div>);
       })}
       <button ref={addMemberBtnRef} onClick={addMember} style={{marginTop:8,padding:'8px 16px',fontSize:12,fontWeight:600,border:'none',borderRadius:8,cursor:'pointer',background:'#1a1a1a',color:'#fff'}}>+ Ajouter quelqu'un</button>
@@ -5160,7 +5249,7 @@ function App(){
       // jour qu'au clic sur "Sauvegarder", donc une correction (ex. date de fin) faite sans
       // re-sauvegarder l'archive de cette semaine restait invisible pour la Compo jusqu'ici.
       if(planning&&planning.startDateISO===todayMonday){
-        setCompoPlanning({...planning,startDateISO:todayMonday});
+        setCompoPlanning({...planning,startDateISO:todayMonday,team:planning.team?plnProjectTeam(planning.team,dateKey(businessNow())):planning.team});
         setCompoPlanningStatus('ok');
         return;
       }
@@ -5170,7 +5259,7 @@ function App(){
         const ref=fb.doc(fb.db,'planning_archive',todayMonday);
         const snap=await fb.getDoc(ref);
         if(!cancelled){
-          if(snap.exists()&&snap.data().planning){setCompoPlanning({...snap.data().planning,startDateISO:todayMonday});setCompoPlanningStatus('ok');}
+          if(snap.exists()&&snap.data().planning){setCompoPlanning({...snap.data().planning,startDateISO:todayMonday,team:snap.data().planning.team?plnProjectTeam(snap.data().planning.team,dateKey(businessNow())):snap.data().planning.team});setCompoPlanningStatus('ok');}
           else{setCompoPlanning(null);setCompoPlanningStatus('empty:'+todayMonday);} // rien d'archivé pour la semaine en cours : pas de synchro plutôt qu'une synchro fausse
         }
       }catch(e){
@@ -5228,11 +5317,17 @@ function App(){
       // Un membre déjà rattaché au Planning dont le genre a changé là-bas (via "Gérer l'équipe du
       // planning") doit se mettre à jour ici aussi, sans qu'il faille le corriger à la main en Compo.
       const toUpdateGender=team.filter(t=>t._fromPlanning&&mappable[t.id]&&mappable[t.id].gender!==(t.gender||'m')).map(t=>t.id);
-      if(toAdd.length===0&&toRemove.length===0&&toRetag.length===0&&toUpdateGender.length===0)return;
+      // Changement de statut côté Planning (promotion) : on ne répercute que si le statut Planning a CHANGÉ depuis la dernière synchro
+      // (_planRole mémorise le dernier statut Planning vu), donc un statut Compo corrigé à la main n'est jamais écrasé sans raison.
+      const toInitPlanRole=team.filter(t=>t._fromPlanning&&mappable[t.id]&&t._planRole===undefined).map(t=>t.id);
+      const toSyncRole=team.filter(t=>t._fromPlanning&&mappable[t.id]&&t._planRole!==undefined&&t._planRole!==mappable[t.id].role).map(t=>t.id);
+      if(toAdd.length===0&&toRemove.length===0&&toRetag.length===0&&toUpdateGender.length===0&&toInitPlanRole.length===0&&toSyncRole.length===0)return;
       let newTeam=team.filter(t=>!toRemove.includes(t.id));
       newTeam=newTeam.map(t=>toRetag.includes(t.id)?{...t,_fromPlanning:true}:t);
       newTeam=newTeam.map(t=>toUpdateGender.includes(t.id)?{...t,gender:mappable[t.id].gender}:t);
-      toAdd.forEach(cid=>{newTeam=[...newTeam,{id:cid,name:mappable[cid].name,role:mappable[cid].role,gender:mappable[cid].gender||'m',_fromPlanning:true}];});
+      newTeam=newTeam.map(t=>toInitPlanRole.includes(t.id)?{...t,_planRole:mappable[t.id].role}:t);
+      newTeam=newTeam.map(t=>toSyncRole.includes(t.id)?{...t,role:mappable[t.id].role,_planRole:mappable[t.id].role}:t);
+      toAdd.forEach(cid=>{newTeam=[...newTeam,{id:cid,name:mappable[cid].name,role:mappable[cid].role,gender:mappable[cid].gender||'m',_fromPlanning:true,_planRole:mappable[cid].role}];});
       setTeam(newTeam);
       save(services,tables,terrasseMode,manual,currentService,compos,newTeam);
       saveServicesAndTeam(services,newTeam);
