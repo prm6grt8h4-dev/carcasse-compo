@@ -1151,6 +1151,24 @@ function PlanningView({planning,setPlanning,savePlanning,canManageSettings,roleL
     const rangFixed=plnIsRangRole(member)?(fixedOverrides['_rang']||PLN_RANG_FIXED_PATTERN):null;
     return {pattern,rangFixed};
   }
+  // Horaires de départ d'une personne qui vient de changer de statut : on ne recopie JAMAIS ceux de son ancien statut.
+  // Source : motif personnel, sinon motif de rang, sinon motif commun des autres personnes ayant ce même statut
+  // (uniquement s'ils sont tous d'accord ; en cas de doute on laisse vide plutôt que de deviner).
+  function patternCellsForRole(member,teamArr){
+    const {pattern,rangFixed}=getFixedPatterns(member.id,member);
+    let src=null;
+    if(pattern&&pattern!=='same')src=pattern;
+    else if(!pattern&&rangFixed)src=rangFixed;
+    else if(!pattern){
+      const seen={};
+      teamArr.filter(x=>x.id!==member.id&&x.role===member.role).forEach(x=>{const pt=getFixedPatterns(x.id,x).pattern;if(pt&&pt!=='same')seen[JSON.stringify(pt)]=pt;});
+      const keys=Object.keys(seen);
+      if(keys.length===1)src=seen[keys[0]];
+    }
+    const cell={};
+    if(src)Object.keys(src).forEach(d=>{cell[d]={horaire:src[d],tache:'',alerte:'',off:false};});
+    return cell;
+  }
   function getCommisLetterConfig(letter){
     const override=commisLetterTexts[letter]||{};
     const def=PLN_COMMIS_LETTER_DEFAULTS[letter];
@@ -1708,7 +1726,10 @@ function PlanningView({planning,setPlanning,savePlanning,canManageSettings,roleL
     const dayList=['mar','mer','jeu'];
     const relevantTeam=projectTeamForWeek(team.filter(m=>!(m.dateFin&&m.dateFin<newStartISO)),newStartISO); // exclut ceux dont le dernier jour est déjà passé avant le début de cette nouvelle semaine (sinon ils étaient recopiés sans vérification)
     relevantTeam.forEach(member=>{
-      const oldCell=(d)=>(schedule[member.id]&&schedule[member.id][d])||{};
+      const prevM=team.find(t=>t.id===member.id);
+      const roleChanged=!!prevM&&(prevM.role!==member.role||prevM.group!==member.group);
+      // Changement de statut : les horaires de l'ancien statut ne sont pas repris (sauf commis/stagiaires, dont la lettre F/G est recalculée)
+      const oldCell=(d)=>(roleChanged&&!plnIsMarLinkedMember(member))?{}:((schedule[member.id]&&schedule[member.id][d])||{});
       const {pattern:fixedPattern,rangFixed}=getFixedPatterns(member.id,member);
       const cell={};
       if(fixedPattern==='same'){
@@ -1748,6 +1769,8 @@ function PlanningView({planning,setPlanning,savePlanning,canManageSettings,roleL
           const otherDay=cfg.longDay==='ven'?'sam':'ven';
           pendingList.push({memberId:member.id,dayKey:otherDay,memberName:member.name});
         }
+      }else if(roleChanged){
+        Object.assign(cell,patternCellsForRole(member,relevantTeam));
       }else{
         ['mar','mer','jeu','ven','sam'].forEach(d=>{
           const old=oldCell(d);
@@ -1778,7 +1801,15 @@ function PlanningView({planning,setPlanning,savePlanning,canManageSettings,roleL
         // semaine précise. On ne garde de l'archive que le planning (schedule/notes/dayOpen), et on
         // filtre l'équipe ACTUELLE selon qui était présent cette semaine-là (date de fin).
         const filteredTeam=projectTeamForWeek(team.filter(m=>!(m.dateFin&&m.dateFin<newStartISO)),newStartISO);
-        commit({...loaded,team:filteredTeam,startDateISO:newStartISO});
+        // Semaine archivée AVANT la programmation d'un changement de statut : pour les personnes concernées dont le statut
+        // archivé diffère du statut calculé, les horaires de l'ancien statut sont remplacés par ceux du nouveau.
+        let loadedSchedule=loaded.schedule;
+        const archTeam=loaded.team||[];
+        filteredTeam.filter(m=>m.roleChanges&&m.roleChanges.length).forEach(m=>{
+          const a=archTeam.find(x=>x.id===m.id);
+          if(a&&(a.role!==m.role||a.group!==m.group))loadedSchedule={...(loadedSchedule||{}),[m.id]:patternCellsForRole(m,filteredTeam)};
+        });
+        commit({...loaded,...(loadedSchedule?{schedule:loadedSchedule}:{}),team:filteredTeam,startDateISO:newStartISO});
       }else{
         applyAutoWeek(newStartISO,weeksDiff);
       }
