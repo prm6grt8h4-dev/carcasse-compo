@@ -4711,6 +4711,9 @@ function TubesArgentView({userEmail}){
   const [loaded,setLoaded]=useState(false);
   const svgRef=useRef(null);
   const dragRef=useRef(null);
+  const [vb,setVb]=useState(TUBES_VB);
+  const ptrs=useRef(new Map());
+  const gesture=useRef(null);
   useEffect(()=>{
     const fb=getFirebase();
     if(!fb){setLoaded(true);return;}
@@ -4742,22 +4745,60 @@ function TubesArgentView({userEmail}){
     const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;
     const m=svg.getScreenCTM();return m?pt.matrixTransform(m.inverse()):{x:0,y:0};
   }
+  function clampVb(v){
+    const w=Math.min(TUBES_VB.w,Math.max(TUBES_VB.w/6,v.w)),h=w*TUBES_VB.h/TUBES_VB.w;
+    return{w,h,x:Math.max(TUBES_VB.x,Math.min(TUBES_VB.x+TUBES_VB.w-w,v.x)),y:Math.max(TUBES_VB.y,Math.min(TUBES_VB.y+TUBES_VB.h-h,v.y))};
+  }
+  function zoomBy(f){
+    setVb(v=>{const w=v.w/f,h=w*TUBES_VB.h/TUBES_VB.w;return clampVb({w,h,x:v.x+(v.w-w)/2,y:v.y+(v.h-h)/2});});
+  }
   function down(e,it){
-    if(!editing)return;
+    if(!editing||ptrs.current.size>=2)return;
     e.preventDefault();
     const p=toSvg(e);
     dragRef.current={id:it.id,dx:it.x-p.x,dy:it.y-p.y,ox:it.x,oy:it.y};
     setSelId(it.id);
+  }
+  function svgDown(e){
     try{svgRef.current.setPointerCapture(e.pointerId);}catch(err){}
+    ptrs.current.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    const r=svgRef.current.getBoundingClientRect();
+    if(ptrs.current.size>=2){
+      dragRef.current=null;
+      const [a,b]=[...ptrs.current.values()];
+      const mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2};
+      gesture.current={type:'pinch',d0:Math.hypot(a.x-b.x,a.y-b.y)||1,vb0:vb,sx:vb.x+(mid.x-r.left)/r.width*vb.w,sy:vb.y+(mid.y-r.top)/r.height*vb.h};
+    }else if(!dragRef.current){
+      gesture.current={type:'pan',x0:e.clientX,y0:e.clientY,vb0:vb};
+    }
   }
   function move(e){
+    if(ptrs.current.has(e.pointerId))ptrs.current.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    const g=gesture.current;
+    const r=svgRef.current.getBoundingClientRect();
+    if(g&&g.type==='pinch'&&ptrs.current.size>=2){
+      const [a,b]=[...ptrs.current.values()];
+      const mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2};
+      const z=(Math.hypot(a.x-b.x,a.y-b.y)||1)/g.d0;
+      const w=g.vb0.w/z,h=w*TUBES_VB.h/TUBES_VB.w;
+      setVb(clampVb({w,h,x:g.sx-(mid.x-r.left)/r.width*w,y:g.sy-(mid.y-r.top)/r.height*h}));
+      return;
+    }
+    if(g&&g.type==='pan'&&!dragRef.current&&ptrs.current.size===1){
+      if(g.vb0.w>=TUBES_VB.w-1)return; // pas de décalage sans zoom
+      setVb(clampVb({...g.vb0,x:g.vb0.x-(e.clientX-g.x0)*g.vb0.w/r.width,y:g.vb0.y-(e.clientY-g.y0)*g.vb0.w/r.width}));
+      return;
+    }
     const d=dragRef.current;if(!d)return;
     const p=toSvg(e);
     const nx=Math.max(TUBES_VB.x,Math.min(TUBES_VB.x+TUBES_VB.w,Math.round(p.x+d.dx)));
     const ny=Math.max(TUBES_VB.y,Math.min(TUBES_VB.y+TUBES_VB.h,Math.round(p.y+d.dy)));
     setDraft(prev=>prev?({...prev,items:prev.items.map(i=>i.id===d.id?{...i,x:nx,y:ny}:i)}):prev);
   }
-  function up(){
+  function up(e){
+    if(e&&e.pointerId!==undefined)ptrs.current.delete(e.pointerId);
+    if(ptrs.current.size===1){const [pt]=[...ptrs.current.values()];gesture.current={type:'pan',x0:pt.x,y0:pt.y,vb0:vb};}
+    else if(ptrs.current.size===0)gesture.current=null;
     const d=dragRef.current;dragRef.current=null;if(!d)return;
     // Aimante le rond sur l'emplacement fixe le plus proche ; si un autre rond l'occupe, les deux s'échangent
     setDraft(prev=>{
@@ -4775,7 +4816,11 @@ function TubesArgentView({userEmail}){
   const inp={width:'100%',boxSizing:'border-box',padding:'8px 10px',fontSize:14,border:'0.5px solid #ccc',borderRadius:7,outline:'none',background:'#fff',fontFamily:'inherit'};
   const lbl={fontSize:11,fontWeight:700,color:'#888',textTransform:'uppercase',letterSpacing:'.04em',margin:'10px 0 4px'};
   return(<div style={{display:'flex',flexDirection:'column',gap:10}}>
-    <div style={{display:'flex',gap:8,justifyContent:'flex-end',flexWrap:'wrap'}}>
+    <div style={{display:'flex',gap:8,justifyContent:'flex-end',flexWrap:'wrap',alignItems:'center'}}>
+      <button onClick={()=>zoomBy(1/1.4)} style={{width:34,height:30,fontSize:16,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>−</button>
+      <button onClick={()=>zoomBy(1.4)} style={{width:34,height:30,fontSize:16,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>+</button>
+      {vb.w<TUBES_VB.w-1&&<button onClick={()=>setVb(TUBES_VB)} style={{padding:'6px 10px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Vue entière</button>}
+      <div style={{flex:1}}/>
       {!editing&&<button onClick={startEdit} disabled={!loaded} style={{padding:'6px 12px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Modifier</button>}
       {editing&&<>
         <button onClick={resetDefault} style={{padding:'6px 12px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Plan d’origine</button>
@@ -4785,9 +4830,9 @@ function TubesArgentView({userEmail}){
     </div>
     {editing&&<div style={{fontSize:11,color:'#888',textAlign:'center'}}>Glisse un rond vers un point gris : il s’y place, et échange sa place si le point est déjà pris. Touche un rond pour modifier son texte et sa couleur.</div>}
     <div style={{background:'#fff',borderRadius:10,border:'0.5px solid #d4d2c8',overflow:'hidden'}}>
-      <svg ref={svgRef} viewBox={TUBES_VB.x+' '+TUBES_VB.y+' '+TUBES_VB.w+' '+TUBES_VB.h} style={{display:'block',width:'100%',height:'auto',touchAction:editing?'none':'auto',userSelect:'none',WebkitUserSelect:'none'}} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
+      <svg ref={svgRef} viewBox={vb.x+' '+vb.y+' '+vb.w+' '+vb.h} style={{display:'block',width:'100%',height:'auto',touchAction:'none',userSelect:'none',WebkitUserSelect:'none'}} onPointerDown={svgDown} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
         <rect x={TUBES_VB.x} y={TUBES_VB.y} width={TUBES_VB.w} height={TUBES_VB.h} fill="#ffffff"/>
-        <text textAnchor="middle" fontFamily='Georgia, "Times New Roman", serif' fontWeight="800" fontSize="66" fill="#111" textDecoration="underline">
+        <text textAnchor="middle" fontFamily="system-ui,sans-serif" fontWeight="700" fontSize="62" fill="#1a1a1a" textDecoration="underline">
           {titleLines.map((l,i)=><tspan key={i} x="960" y={170+i*80}>{l}</tspan>)}
         </text>
         <path d="M190 300 L1728 300 L1728 700 C1728 1000 1250 1093 959 1093 C668 1093 190 1000 190 700 Z" fill="none" stroke="#222" strokeWidth="3"/>
@@ -4800,7 +4845,7 @@ function TubesArgentView({userEmail}){
           return(<g key={it.id} onPointerDown={e=>down(e,it)} style={{cursor:editing?'grab':'default'}}>
             <circle cx={it.x} cy={it.y} r={it.r} fill={it.fill} stroke={light?'#222':'none'} strokeWidth="3"/>
             {editing&&selId===it.id&&<circle cx={it.x} cy={it.y} r={it.r+10} fill="none" stroke="#378ADD" strokeWidth="6" strokeDasharray="14 10"/>}
-            <text textAnchor="middle" fontFamily="Helvetica, Arial, sans-serif" fontSize={fs} fill={light?'#1a1a1a':'#f0f0f0'} style={{pointerEvents:'none'}}>
+            <text textAnchor="middle" fontFamily="system-ui,sans-serif" fontSize={fs} fill={light?'#1a1a1a':'#f0f0f0'} style={{pointerEvents:'none'}}>
               {lines.map((l,i)=><tspan key={i} x={it.x} y={y0+i*fs*1.3}>{l}</tspan>)}
             </text>
           </g>);
