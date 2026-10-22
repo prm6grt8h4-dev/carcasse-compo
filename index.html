@@ -4695,6 +4695,7 @@ const TUBES_DEFAULT={
     {id:'t12',text:'Thé noir\nSun Moon\nLake',x:1605,y:709,r:92,fill:'#1a1a1a'},
   ]
 };
+const TUBES_SLOTS=TUBES_DEFAULT.items.map(i=>({x:i.x,y:i.y}));
 function tubesLum(hex){
   const h=String(hex||'#ffffff').replace('#','');
   const f=h.length===3?h.split('').map(c=>c+c).join(''):h;
@@ -4745,7 +4746,7 @@ function TubesArgentView({userEmail}){
     if(!editing)return;
     e.preventDefault();
     const p=toSvg(e);
-    dragRef.current={id:it.id,dx:it.x-p.x,dy:it.y-p.y};
+    dragRef.current={id:it.id,dx:it.x-p.x,dy:it.y-p.y,ox:it.x,oy:it.y};
     setSelId(it.id);
     try{svgRef.current.setPointerCapture(e.pointerId);}catch(err){}
   }
@@ -4756,7 +4757,18 @@ function TubesArgentView({userEmail}){
     const ny=Math.max(TUBES_VB.y,Math.min(TUBES_VB.y+TUBES_VB.h,Math.round(p.y+d.dy)));
     setDraft(prev=>prev?({...prev,items:prev.items.map(i=>i.id===d.id?{...i,x:nx,y:ny}:i)}):prev);
   }
-  function up(){dragRef.current=null;}
+  function up(){
+    const d=dragRef.current;dragRef.current=null;if(!d)return;
+    // Aimante le rond sur l'emplacement fixe le plus proche ; si un autre rond l'occupe, les deux s'échangent
+    setDraft(prev=>{
+      if(!prev)return prev;
+      const me=prev.items.find(i=>i.id===d.id);if(!me)return prev;
+      let best=TUBES_SLOTS[0],bd=Infinity;
+      TUBES_SLOTS.forEach(sl=>{const dd=(sl.x-me.x)*(sl.x-me.x)+(sl.y-me.y)*(sl.y-me.y);if(dd<bd){bd=dd;best=sl;}});
+      const other=prev.items.find(i=>i.id!==d.id&&Math.abs(i.x-best.x)<5&&Math.abs(i.y-best.y)<5);
+      return{...prev,items:prev.items.map(i=>i.id===d.id?{...i,x:best.x,y:best.y}:(other&&i.id===other.id?{...i,x:d.ox,y:d.oy}:i))};
+    });
+  }
   function patchSel(patch){setDraft(prev=>({...prev,items:prev.items.map(i=>i.id===selId?{...i,...patch}:i)}));}
 
   const titleLines=String(cur.title||'').split('\n');
@@ -4771,14 +4783,15 @@ function TubesArgentView({userEmail}){
         <button onClick={save} disabled={saving} style={{padding:'6px 12px',fontSize:12,fontWeight:600,border:'0.5px solid #86efac',borderRadius:6,cursor:'pointer',background:'#dcfce7',color:'#166534',opacity:saving?.6:1}}>{saving?'Enregistrement…':'Enregistrer'}</button>
       </>}
     </div>
-    {editing&&<div style={{fontSize:11,color:'#888',textAlign:'center'}}>Glisse un rond pour le déplacer, touche-le pour modifier son texte et sa couleur.</div>}
-    <div style={{background:'#f6f2e6',borderRadius:10,border:'0.5px solid #d4d2c8',overflow:'hidden'}}>
+    {editing&&<div style={{fontSize:11,color:'#888',textAlign:'center'}}>Glisse un rond vers un point gris : il s’y place, et échange sa place si le point est déjà pris. Touche un rond pour modifier son texte et sa couleur.</div>}
+    <div style={{background:'#fff',borderRadius:10,border:'0.5px solid #d4d2c8',overflow:'hidden'}}>
       <svg ref={svgRef} viewBox={TUBES_VB.x+' '+TUBES_VB.y+' '+TUBES_VB.w+' '+TUBES_VB.h} style={{display:'block',width:'100%',height:'auto',touchAction:editing?'none':'auto',userSelect:'none',WebkitUserSelect:'none'}} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
-        <rect x={TUBES_VB.x} y={TUBES_VB.y} width={TUBES_VB.w} height={TUBES_VB.h} fill="#f6f2e6"/>
+        <rect x={TUBES_VB.x} y={TUBES_VB.y} width={TUBES_VB.w} height={TUBES_VB.h} fill="#ffffff"/>
         <text textAnchor="middle" fontFamily='Georgia, "Times New Roman", serif' fontWeight="800" fontSize="66" fill="#111" textDecoration="underline">
           {titleLines.map((l,i)=><tspan key={i} x="960" y={170+i*80}>{l}</tspan>)}
         </text>
-        <path d="M190 300 L1712 343 L1728 700 C1728 1000 1250 1093 960 1093 C670 1093 192 1000 192 700 Z" fill="none" stroke="#222" strokeWidth="3"/>
+        <path d="M190 300 L1728 300 L1728 700 C1728 1000 1250 1093 959 1093 C668 1093 190 1000 190 700 Z" fill="none" stroke="#222" strokeWidth="3"/>
+        {editing&&TUBES_SLOTS.map((sl,i)=><circle key={'slot'+i} cx={sl.x} cy={sl.y} r="9" fill="#c9c9c9"/>)}
         {cur.items.map(it=>{
           const light=tubesLum(it.fill)>0.55;
           const lines=String(it.text||'').split('\n');
