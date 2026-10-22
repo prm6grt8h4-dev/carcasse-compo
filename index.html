@@ -4050,7 +4050,7 @@ function FromageView({currentService,services,userEmail,fromageList,setFromageLi
   const [archiveLoading,setArchiveLoading]=useState(false);
   const [showManage,setShowManage]=useState(false);
   const [newCheeseName,setNewCheeseName]=useState('');
-  const [qtyMode,setQtyMode]=useState('numeric'); // 'numeric' (par défaut) ou 'text' (bascule via icône compacte)
+  const [qtyMode,setQtyMode]=useState('text'); // 'text' (par défaut, même clavier que Format) ou 'numeric' (bascule via icône compacte)
 
   useEffect(()=>{
     const d=suggestDateForSvc(currentService);
@@ -4277,7 +4277,7 @@ const BOISSONS_INFUSIONS=[{"id": "inf_coriandre", "name": "Coriandre, fenouil, t
 const BOISSONS_CAFES=[{"id": "cafe_espresso", "name": "Espresso signature", "variete": "Sarchimor & Acaïa", "pays": "Brésil et Inde", "altitude": "1020 m - 1150 m", "process": "Nature", "texte": "Il se boit long ou court, mais il vous invite surtout à **prendre le large** : notre Assemblage Signature Espresso en grains relie l’Inde et le Brésil en empruntant des voies aromatiques **justes et équilibrées**. Sans détour, ce café de spécialité vous offre ses **saveurs fruitées et épicées** et ses notes d’agrumes et chocolat. Un assemblage d’une grande justesse notamment grâce aux deux fermes choisies : l’une qui s’engage en faveur de la qualité au sein du **plus grand pays producteur de café**, et l’autre qui croit en une culture accueillant ce que la terre lui donne, sans intervention humaine."}, {"id": "cafe_italien", "name": "Italien", "variete": "Catuaï & Conillon", "pays": "Brésil", "altitude": "900 m - 1300 m", "process": "Pulped Nature", "texte": "On imagine souvent le café à l’italienne **intense & corsé**, un peu grillé, un peu amer. Et c’est ainsi que nous avons voulu le nôtre. En grains, ses notes chocolatées et épicées, **puissantes mais équilibrées**, vous enchantent d’un **“ciao”** ! Cohérent jusqu’aux origines, son assemblage **100% Brésil** mêle deux variétés, 80% Catuaï et 20% Conillon, issues de la même ferme et de la même parcelle, dans un souci de mise en valeur d’un terroir unique."}, {"id": "cafe_decafeine", "name": "Décaféiné", "variete": "Castillo, Typica & Caturra Rouge", "pays": "Colombie", "altitude": "1700 m - 2000 m", "process": "Nature", "texte": "Pour tous les esprits paradoxaux qui aiment **boire du café sans boire de café** ! Nous vous proposons l’expérience assez inouïe de savourer une boisson **suave et singulière**, sans caféine, mais aux arômes merveilleusement conformes à ce que vous attendez du café, justes et équilibrés, avec **ce qu’il faut d’amertume et d’acidité**.\n\nNous sommes allés jusqu’en Colombie, nous sommes même montés jusqu’à la Fabrica, ferme colombienne de la région de Tolima. C’est là-haut, sur ces parcelles en haute altitude, drapées de brume et de nuages, qu’une **communauté de caféiculteurs** regroupant plus de 200 familles, cultive le café avec une grande rigueur. Chaque fruit est **choisi et cueilli à la main**, cerise par cerise. Et cerise sur le café, un deuxième tri est effectué après la récolte pour ne garder vraiment que le meilleur ! Les fruits vont ensuite fermenter avec des levures naturelles avant d’être séchés, décortiqués et décaféinés. Et voilà, le tour est joué ! Des grains à préparer en **espresso ou à l’italienne pour plus d’intensité** ou en **filtre pour plus de subtilité** : c’est l’heure de la pause-decaf !"}, {"id": "cafe_ethiopie", "name": "Éthiopie", "variete": "Heirloom", "pays": "Ethiopie", "altitude": "2000 m", "process": "Lavé", "texte": "Asseyez-vous au comptoir et **embarquez pour un voyage** à travers le monde et à travers l’Histoire. Ces notes **fines & subtiles**, ces parfums d’agrumes, d’abricot et de jasmin, cette **acidité marquée mais maîtrisée**, c’est la promesse envoûtante d’un retour aux sources.\n\nDirection l’Ethiopie, **berceau de la culture du café** depuis des siècles, dans la région de **Yirgacheffe**, région qui produit certains des cafés les plus appréciés au monde. Sans doute les plantes se sentent-elles chez elles, sur leur terre d’origine, au sein d’un environnement on ne peut plus favorable, ce qui leur permet de s’épanouir de la meilleure manière possible. Le café choisi parmi tous les cafés proposés par la ferme avec qui nous travaillons a été un vrai **coup de cœur** pour notre chef torréfacteur, et nous espérons qu’il le sera tout autant pour vous. Ce n’est pas tous les jours qu’on vous invite à **voyager à bord d’une tasse** !"}, {"id": "cafe_colombie", "name": "Colombie", "variete": "Castillo", "pays": "Colombie", "altitude": "1700 m - 2000 m", "process": "Nature", "texte": "Un café dont le goût est indissociable de ses origines. Bienvenue à la Fabrica, **ferme colombienne** de la région de Tolima : c’est ici, sur ces parcelles en haute altitude, drapées de brume et de nuages, qu’une **communauté de caféiculteurs** regroupant plus de 200 familles, cultive le Castillo, une variété qui doit ses caractéristiques uniques au climat particulier du pays. Ici, chaque fruit est **choisi et cueilli à la main**, cerise par cerise. Et cerise sur le café, un deuxième tri est effectué après la récolte pour ne garder vraiment que le meilleur ! Les fruits vont ensuite fermenter avec des levures naturelles avant d’être séchées et décortiquées.\n\nLe résultat de cette méthode exigeante et naturelle ? Beaucoup de **rondeur**, de douceur, d’**onctuosité**, une complexité incroyable, des **notes fruitées** de mirabelle, fruits rouges et physalis, grâce au sucre de la cerise absorbé par le grain au cours de toutes ces étapes. À préparer en espresso pour plus d’intensité ou en filtre pour plus de subtilité, **à vous de boire** !"}];
 
 function boissonsRich(txt){
-  return String(txt||'').split('\n\n').map((para,pi)=>(<p key={pi} style={{margin:'0 0 12px 0'}}>{para.split('**').map((part,i)=>i%2===1?<b key={i} style={{color:'#6b3a22'}}>{part}</b>:<span key={i}>{part}</span>)}</p>));
+  return String(txt||'').split('\n\n').map((para,pi)=>(<p key={pi} style={{margin:'0 0 12px 0'}}>{para.split('**').map((part,i)=>i%2===1?<b key={i}>{part}</b>:<span key={i}>{part}</span>)}</p>));
 }
 function emptyBoissonsLine(){return{qty:'',format:'',dluo:''};}
 function normalizeBoissonsItemVal(v){
@@ -4291,29 +4291,29 @@ function boissonsDefaultList(){
 function sortBoissons(list){return [...list].sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'fr',{sensitivity:'base'}));}
 function boissonsOfType(list,type){return sortBoissons(list.filter(x=>x.type===type));}
 function BoissonFicheModal({item,onClose}){
-  const brown='#4a230f',soft='#7a4a32',dash='1px dashed #d9cfc8';
   const isCafe=item.type==='cafe';
-  const row=(label,value)=>value?(<div style={{display:'flex',justifyContent:'space-between',gap:12,padding:'12px 4px',borderTop:dash,fontSize:14}}><b style={{color:brown}}>{label}</b><span style={{color:soft,textAlign:'right'}}>{value}</span></div>):null;
+  const row=(label,value)=>value?<div><span style={{color:'#888'}}>{label} : </span><b>{value}</b></div>:null;
   return(<div onClick={e=>{if(e.target===e.currentTarget)onClose();}} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:300}}>
-    <div style={{background:'#f0ebe7',borderRadius:12,width:'min(94vw,460px)',maxHeight:'88vh',overflowY:'auto',border:'0.5px solid #ddd'}}>
-      <div style={{padding:'18px 18px 14px'}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10,gap:8}}>
-          <span style={{fontFamily:'Georgia, "Times New Roman", serif',fontWeight:800,fontSize:isCafe?24:18,letterSpacing:'.02em',textTransform:isCafe?'uppercase':'none',color:brown,lineHeight:1.15}}>{item.name}</span>
-          <button onClick={onClose} style={{background:'none',border:'none',fontSize:24,cursor:'pointer',color:soft,lineHeight:1}}>×</button>
+    <div style={{background:'#fff',borderRadius:12,width:'min(94vw,420px)',maxHeight:'85vh',overflowY:'auto',border:'0.5px solid #ddd'}}>
+      <div style={{padding:16}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
+          <span style={{fontWeight:700,fontSize:16}}>{item.name}</span>
+          <button onClick={onClose} style={{background:'none',border:'none',fontSize:22,cursor:'pointer',color:'#888',lineHeight:1}}>×</button>
         </div>
-        {isCafe?(<>
-          {item.texte&&<><div style={{fontFamily:'Georgia, "Times New Roman", serif',fontWeight:800,fontSize:15,letterSpacing:'.06em',textTransform:'uppercase',color:brown,marginBottom:8}}>Identité</div>
-          <div style={{fontSize:14,lineHeight:1.55,color:soft}}>{boissonsRich(item.texte)}</div></>}
-          {row('Variété',item.variete)}
-          {row('Pays',item.pays)}
-          {row('Altitude',item.altitude)}
-          {row('Process',item.process)}
-        </>):(<>
-          {item.accroche&&<div style={{fontSize:14,fontStyle:'italic',fontWeight:700,color:brown,margin:'2px 0 12px'}}>{item.accroche}</div>}
-          {row('Quantité',item.quantite)}
-          {row('Vertus',item.vertus)}
-          {row('Infusion',item.infusion)}
-        </>)}
+        <div style={{display:'flex',flexDirection:'column',gap:6,fontSize:13}}>
+          {isCafe?(<>
+            {row('Variété',item.variete)}
+            {row('Pays',item.pays)}
+            {row('Altitude',item.altitude)}
+            {row('Process',item.process)}
+          </>):(<>
+            {row('Quantité',item.quantite)}
+            {row('Vertus',item.vertus)}
+            {row('Infusion',item.infusion)}
+          </>)}
+        </div>
+        {isCafe&&item.texte&&<div style={{fontSize:13,color:'#444',marginTop:12,lineHeight:1.5}}>{boissonsRich(item.texte)}</div>}
+        {!isCafe&&item.accroche&&<p style={{fontSize:13,color:'#444',marginTop:12,lineHeight:1.5,margin:'12px 0 0'}}>{item.accroche}</p>}
       </div>
     </div>
   </div>);
@@ -4477,7 +4477,7 @@ function BoissonsInventaireView({currentService,services,userEmail,list,onManage
   const [exportItems,setExportItems]=useState(null);
   const [archive,setArchive]=useState([]);
   const [archiveLoading,setArchiveLoading]=useState(false);
-  const [qtyMode,setQtyMode]=useState('numeric');
+  const [qtyMode,setQtyMode]=useState('text');
 
   useEffect(()=>{
     const d=suggestDateForSvc(currentService);
