@@ -4477,7 +4477,7 @@ function BoissonsInventaireView({currentService,services,userEmail,list,onManage
   const [exportItems,setExportItems]=useState(null);
   const [archive,setArchive]=useState([]);
   const [archiveLoading,setArchiveLoading]=useState(false);
-  const [qtyMode,setQtyMode]=useState('text');
+  const [qtyMode,setQtyMode]=useState('numeric');
 
   useEffect(()=>{
     const d=suggestDateForSvc(currentService);
