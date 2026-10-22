@@ -4669,9 +4669,151 @@ function BoissonsTab({sub,currentService,services,userEmail}){
   const openManage=()=>{if(loaded)setShowManage(true);};
   return(<>
     {sub==='boissons'&&<BoissonsFichesView list={list} onManage={openManage}/>}
+    {sub==='tubes'&&<TubesArgentView userEmail={userEmail}/>}
     {sub==='inventaire'&&<BoissonsInventaireView currentService={currentService} services={services} userEmail={userEmail} list={list} onManage={openManage}/>}
     {showManage&&<BoissonsManageModal list={list} onChange={persist} onClose={()=>setShowManage(false)}/>}
   </>);
+}
+
+// ─── Tubes en argent (plan de mise en place des thés et infusions sèches) ──
+const TUBES_VB={x:90,y:60,w:1700,h:1090};
+const TUBES_PALETTE=['#b8b8b8','#ffffff','#1a1a1a','#1f5fb4','#5b2a86','#6aa84f','#7ab648','#c0392b','#e67e22','#f1c40f','#e84393','#8b5a2b'];
+const TUBES_DEFAULT={
+  title:'MISE EN PLACE DES THES ET INFUSIONS\nSECHES',
+  items:[
+    {id:'t1',text:'Camomille',x:358,y:418,r:98,fill:'#b8b8b8'},
+    {id:'t2',text:'Menthe\nPoivrée',x:673,y:529,r:93,fill:'#b8b8b8'},
+    {id:'t3',text:'Tilleul',x:994,y:603,r:90,fill:'#b8b8b8'},
+    {id:'t4',text:'Verveine',x:1297,y:530,r:90,fill:'#b8b8b8'},
+    {id:'t5',text:'Thé\nbleu/vert\nGaba',x:1565,y:480,r:90,fill:'#1f5fb4'},
+    {id:'t6',text:'Thé Pu Er\nblanc',x:320,y:694,r:98,fill:'#ffffff'},
+    {id:'t7',text:'Thé Pu-Er\nNoir',x:541,y:791,r:98,fill:'#1a1a1a'},
+    {id:'t8',text:'Thé Pu-Er\nViolet',x:751,y:869,r:96,fill:'#5b2a86'},
+    {id:'t9',text:'Thé vert\nKamairicha',x:979,y:932,r:93,fill:'#6aa84f'},
+    {id:'t10',text:'Thé vert\nLong jing',x:1188,y:855,r:92,fill:'#7ab648'},
+    {id:'t11',text:'Thé noir\nEarl Grey',x:1409,y:818,r:92,fill:'#1a1a1a'},
+    {id:'t12',text:'Thé noir\nSun Moon\nLake',x:1605,y:709,r:92,fill:'#1a1a1a'},
+  ]
+};
+function tubesLum(hex){
+  const h=String(hex||'#ffffff').replace('#','');
+  const f=h.length===3?h.split('').map(c=>c+c).join(''):h;
+  const n=parseInt(f,16);if(isNaN(n))return 1;
+  return(0.299*((n>>16)&255)+0.587*((n>>8)&255)+0.114*(n&255))/255;
+}
+
+function TubesArgentView({userEmail}){
+  const [data,setData]=useState(TUBES_DEFAULT);
+  const [draft,setDraft]=useState(null);
+  const [selId,setSelId]=useState(null);
+  const [saving,setSaving]=useState(false);
+  const [loaded,setLoaded]=useState(false);
+  const svgRef=useRef(null);
+  const dragRef=useRef(null);
+  useEffect(()=>{
+    const fb=getFirebase();
+    if(!fb){setLoaded(true);return;}
+    fb.getDoc(fb.doc(fb.db,'app','tubes')).then(snap=>{
+      if(snap.exists()&&snap.data().data&&Array.isArray(snap.data().data.items))setData(snap.data().data);
+      setLoaded(true);
+    }).catch(e=>{console.error(e);setLoaded(true);});
+  },[]);
+  const editing=!!draft;
+  const cur=draft||data;
+  const sel=editing?cur.items.find(i=>i.id===selId):null;
+  function startEdit(){setDraft(JSON.parse(JSON.stringify(data)));setSelId(null);}
+  function cancel(){setDraft(null);setSelId(null);}
+  async function save(){
+    const fb=getFirebase();
+    setSaving(true);
+    try{
+      if(fb)await fb.setDoc(fb.doc(fb.db,'app','tubes'),{data:draft,updatedBy:userEmail,updatedAt:new Date().toISOString()});
+      setData(draft);setDraft(null);setSelId(null);
+    }catch(e){console.error(e);window.alert('Enregistrement impossible. Réessaie.');}
+    setSaving(false);
+  }
+  function resetDefault(){
+    if(!window.confirm('Remettre le plan d’origine (textes, couleurs, positions) ?'))return;
+    setDraft(JSON.parse(JSON.stringify(TUBES_DEFAULT)));setSelId(null);
+  }
+  function toSvg(e){
+    const svg=svgRef.current;if(!svg)return{x:0,y:0};
+    const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;
+    const m=svg.getScreenCTM();return m?pt.matrixTransform(m.inverse()):{x:0,y:0};
+  }
+  function down(e,it){
+    if(!editing)return;
+    e.preventDefault();
+    const p=toSvg(e);
+    dragRef.current={id:it.id,dx:it.x-p.x,dy:it.y-p.y};
+    setSelId(it.id);
+    try{svgRef.current.setPointerCapture(e.pointerId);}catch(err){}
+  }
+  function move(e){
+    const d=dragRef.current;if(!d)return;
+    const p=toSvg(e);
+    const nx=Math.max(TUBES_VB.x,Math.min(TUBES_VB.x+TUBES_VB.w,Math.round(p.x+d.dx)));
+    const ny=Math.max(TUBES_VB.y,Math.min(TUBES_VB.y+TUBES_VB.h,Math.round(p.y+d.dy)));
+    setDraft(prev=>prev?({...prev,items:prev.items.map(i=>i.id===d.id?{...i,x:nx,y:ny}:i)}):prev);
+  }
+  function up(){dragRef.current=null;}
+  function patchSel(patch){setDraft(prev=>({...prev,items:prev.items.map(i=>i.id===selId?{...i,...patch}:i)}));}
+
+  const titleLines=String(cur.title||'').split('\n');
+  const inp={width:'100%',boxSizing:'border-box',padding:'8px 10px',fontSize:14,border:'0.5px solid #ccc',borderRadius:7,outline:'none',background:'#fff',fontFamily:'inherit'};
+  const lbl={fontSize:11,fontWeight:700,color:'#888',textTransform:'uppercase',letterSpacing:'.04em',margin:'10px 0 4px'};
+  return(<div style={{display:'flex',flexDirection:'column',gap:10}}>
+    <div style={{display:'flex',gap:8,justifyContent:'flex-end',flexWrap:'wrap'}}>
+      {!editing&&<button onClick={startEdit} disabled={!loaded} style={{padding:'6px 12px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Modifier</button>}
+      {editing&&<>
+        <button onClick={resetDefault} style={{padding:'6px 12px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Plan d’origine</button>
+        <button onClick={cancel} style={{padding:'6px 12px',fontSize:12,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff',color:'#555'}}>Annuler</button>
+        <button onClick={save} disabled={saving} style={{padding:'6px 12px',fontSize:12,fontWeight:600,border:'0.5px solid #86efac',borderRadius:6,cursor:'pointer',background:'#dcfce7',color:'#166534',opacity:saving?.6:1}}>{saving?'Enregistrement…':'Enregistrer'}</button>
+      </>}
+    </div>
+    {editing&&<div style={{fontSize:11,color:'#888',textAlign:'center'}}>Glisse un rond pour le déplacer, touche-le pour modifier son texte et sa couleur.</div>}
+    <div style={{background:'#f6f2e6',borderRadius:10,border:'0.5px solid #d4d2c8',overflow:'hidden'}}>
+      <svg ref={svgRef} viewBox={TUBES_VB.x+' '+TUBES_VB.y+' '+TUBES_VB.w+' '+TUBES_VB.h} style={{display:'block',width:'100%',height:'auto',touchAction:editing?'none':'auto',userSelect:'none',WebkitUserSelect:'none'}} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
+        <rect x={TUBES_VB.x} y={TUBES_VB.y} width={TUBES_VB.w} height={TUBES_VB.h} fill="#f6f2e6"/>
+        <text textAnchor="middle" fontFamily='Georgia, "Times New Roman", serif' fontWeight="800" fontSize="66" fill="#111" textDecoration="underline">
+          {titleLines.map((l,i)=><tspan key={i} x="960" y={170+i*80}>{l}</tspan>)}
+        </text>
+        <path d="M190 300 L1712 343 L1728 700 C1728 1000 1250 1093 960 1093 C670 1093 192 1000 192 700 Z" fill="none" stroke="#222" strokeWidth="3"/>
+        {cur.items.map(it=>{
+          const light=tubesLum(it.fill)>0.55;
+          const lines=String(it.text||'').split('\n');
+          const fs=28;
+          const y0=it.y-((lines.length-1)*fs*1.3)/2+fs*0.35;
+          return(<g key={it.id} onPointerDown={e=>down(e,it)} style={{cursor:editing?'grab':'default'}}>
+            <circle cx={it.x} cy={it.y} r={it.r} fill={it.fill} stroke={light?'#222':'none'} strokeWidth="3"/>
+            {editing&&selId===it.id&&<circle cx={it.x} cy={it.y} r={it.r+10} fill="none" stroke="#378ADD" strokeWidth="6" strokeDasharray="14 10"/>}
+            <text textAnchor="middle" fontFamily="Helvetica, Arial, sans-serif" fontSize={fs} fill={light?'#1a1a1a':'#f0f0f0'} style={{pointerEvents:'none'}}>
+              {lines.map((l,i)=><tspan key={i} x={it.x} y={y0+i*fs*1.3}>{l}</tspan>)}
+            </text>
+          </g>);
+        })}
+      </svg>
+    </div>
+    {editing&&(<div style={{background:'#fff',borderRadius:10,border:'0.5px solid #d4d2c8',padding:14}}>
+      <div style={lbl}>Titre</div>
+      <textarea value={cur.title||''} onChange={e=>setDraft(prev=>({...prev,title:e.target.value}))} rows={2} style={{...inp,resize:'vertical'}}/>
+      {sel?(<>
+        <div style={{...lbl,marginTop:14}}>Rond sélectionné : texte</div>
+        <textarea value={sel.text} onChange={e=>patchSel({text:e.target.value})} rows={3} style={{...inp,resize:'vertical'}}/>
+        <div style={{fontSize:10,color:'#aaa',marginTop:3}}>Une ligne par retour à la ligne.</div>
+        <div style={lbl}>Couleur</div>
+        <div style={{display:'flex',flexWrap:'wrap',gap:8,alignItems:'center'}}>
+          {TUBES_PALETTE.map(c=>(<button key={c} onClick={()=>patchSel({fill:c})} style={{width:30,height:30,borderRadius:'50%',cursor:'pointer',background:c,border:sel.fill.toLowerCase()===c?'3px solid #378ADD':'1px solid #999',padding:0}}/>))}
+          <input type="color" value={/^#[0-9a-f]{6}$/i.test(sel.fill)?sel.fill:'#b8b8b8'} onChange={e=>patchSel({fill:e.target.value})} style={{width:38,height:32,padding:0,border:'1px solid #ccc',borderRadius:6,background:'#fff'}}/>
+        </div>
+        <div style={lbl}>Taille</div>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          <button onClick={()=>patchSel({r:Math.max(50,sel.r-6)})} style={{width:40,height:32,fontSize:18,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff'}}>−</button>
+          <button onClick={()=>patchSel({r:Math.min(160,sel.r+6)})} style={{width:40,height:32,fontSize:18,border:'0.5px solid #ccc',borderRadius:6,cursor:'pointer',background:'#fff'}}>+</button>
+        </div>
+      </>):<div style={{fontSize:12,color:'#aaa',marginTop:12}}>Touche un rond pour modifier son texte, sa couleur ou sa taille.</div>}
+    </div>)}
+  </div>);
 }
 
 // ─── Groupe ────────────────────────────────────────────────────────────────
@@ -5712,7 +5854,7 @@ function App(){
   const [tab,setTab]=useState('carcasse');
   const [lingeSubTab,setLingeSubTab]=useState('journalier'); // 'journalier' | 'reception' | 'hs'
   const [fromageSubTab,setFromageSubTab]=useState('carte'); // 'compte' | 'carte'
-  const [boissonsSubTab,setBoissonsSubTab]=useState('boissons'); // 'boissons' | 'inventaire'
+  const [boissonsSubTab,setBoissonsSubTab]=useState('boissons'); // 'boissons' | 'inventaire' | 'tubes'
   const [services,setServices]=useState(DEFAULT_SERVICES);
   const [tables,setTables]=useState(()=>buildDefault(DEFAULT_SERVICES));
   const [terrasseMode,setTerrasseMode]=useState(()=>Object.fromEntries(DEFAULT_SERVICES.map(s=>[s.id,false])));
@@ -6375,9 +6517,10 @@ function App(){
         {fromageSubTab==='carte'&&<CarteFromageView userEmail={userEmail}/>}
       </div>)}
       {tab==='boissons'&&(<div style={{display:'flex',flexDirection:'column',gap:10}}>
-        <div style={{display:'flex',gap:6,justifyContent:'center'}}>
+        <div style={{display:'flex',gap:6,justifyContent:'center',flexWrap:'wrap'}}>
           <button onClick={()=>setBoissonsSubTab('boissons')} style={{padding:'7px 16px',fontSize:12,fontWeight:boissonsSubTab==='boissons'?700:400,borderRadius:8,border:'none',cursor:'pointer',background:boissonsSubTab==='boissons'?'#378ADD':'#ececea',color:boissonsSubTab==='boissons'?'#fff':'#555'}}>Boissons chaudes</button>
           <button onClick={()=>setBoissonsSubTab('inventaire')} style={{padding:'7px 16px',fontSize:12,fontWeight:boissonsSubTab==='inventaire'?700:400,borderRadius:8,border:'none',cursor:'pointer',background:boissonsSubTab==='inventaire'?'#378ADD':'#ececea',color:boissonsSubTab==='inventaire'?'#fff':'#555'}}>Inventaire</button>
+          <button onClick={()=>setBoissonsSubTab('tubes')} style={{padding:'7px 16px',fontSize:12,fontWeight:boissonsSubTab==='tubes'?700:400,borderRadius:8,border:'none',cursor:'pointer',background:boissonsSubTab==='tubes'?'#378ADD':'#ececea',color:boissonsSubTab==='tubes'?'#fff':'#555'}}>Tubes en argent</button>
         </div>
         <BoissonsTab sub={boissonsSubTab} currentService={currentService} services={services} userEmail={userEmail}/>
       </div>)}
