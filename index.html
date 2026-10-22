@@ -1242,6 +1242,7 @@ function PlanningView({planning,setPlanning,savePlanning,canManageSettings,roleL
   const [manageOpen,setManageOpen]=useState(false);
   const [newRoleDraftFor,setNewRoleDraftFor]=useState(null);
   const [promoDraft,setPromoDraft]=useState({});
+  const [openSettingsSection,setOpenSettingsSection]=useState(null);
   const [newRoleText,setNewRoleText]=useState('');
   const [pendingChoiceQueue,setPendingChoiceQueue]=useState([]);
   const pendingChoice=pendingChoiceQueue[0]||null;
@@ -2204,15 +2205,8 @@ function PlanningView({planning,setPlanning,savePlanning,canManageSettings,roleL
         const current=groupOptions[groupKey]&&groupOptions[groupKey].length>0?groupOptions[groupKey]:(PLN_GROUPS[groupKey].options||[]).map(o=>plnOpt(o));
         commit({groupOptions:{...groupOptions,[groupKey]:current.filter((_,i)=>i!==idx)}});
       }
-      return(<div onClick={()=>setShowSettings(false)} style={{position:'fixed',inset:0,background:'rgba(20,20,20,.5)',zIndex:120,display:'flex',alignItems:'center',justifyContent:'center',padding:20,overflow:'auto'}}>
-        <div onClick={e=>e.stopPropagation()} style={{background:'#fff',borderRadius:12,padding:20,maxWidth:640,width:'100%',boxShadow:'0 12px 40px rgba(0,0,0,.3)',maxHeight:'90vh',overflowY:'auto'}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-            <span style={{fontWeight:700,fontSize:15}}>Paramètres du Planning</span>
-            <button onClick={()=>setShowSettings(false)} style={{border:'none',background:'none',fontSize:18,cursor:'pointer',color:'#888'}}>×</button>
-          </div>
-
-          <div style={{fontSize:12,fontWeight:700,color:'#555',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:8}}>Horaires proposés par statut</div>
-          {Object.entries(PLN_GROUPS).filter(([k])=>k!=='_unset').map(([gk,g])=>{
+      function renderGroupOptions(gk){
+        const g=PLN_GROUPS[gk];
             const list=groupOptions[gk]&&groupOptions[gk].length>0?groupOptions[gk]:(g.options||[]).map(o=>plnOpt(o));
             return(<div key={gk} style={{marginBottom:14,border:'0.5px solid #e5e7eb',borderRadius:8,padding:10}}>
               <div style={{fontSize:12,fontWeight:600,marginBottom:6}}>{g.label}</div>
@@ -2225,9 +2219,12 @@ function PlanningView({planning,setPlanning,savePlanning,canManageSettings,roleL
                 <button onClick={()=>addOption(gk)} style={{background:'#1a1a1a',color:'#fff',border:'none',borderRadius:6,padding:'6px 12px',fontSize:12,cursor:'pointer'}}>Ajouter</button>
               </div>
             </div>);
-          })}
-
-          <div style={{fontSize:12,fontWeight:700,color:'#555',textTransform:'uppercase',letterSpacing:'.05em',margin:'16px 0 8px'}}>Motifs fixes (répétition automatique)</div>
+      }
+      function renderPatternTable(keep,showSaid){
+        const rows=patternRows.filter(r=>keep(r.key));
+        if(rows.length===0&&!showSaid)return null;
+        return(<>
+          <div style={{fontSize:12,fontWeight:700,color:'#555',textTransform:'uppercase',letterSpacing:'.05em',margin:'12px 0 8px'}}>Motifs fixes (répétition automatique)</div>
           <div style={{fontSize:11,color:'#888',marginBottom:8}}>Saisir n'importe quel jour recopie ce motif sur toute la semaine pour cette personne/statut. Modifie les valeurs ci-dessous pour changer ce qui est recopié.</div>
           <div style={{overflowX:'auto'}}>
             <table style={{borderCollapse:'collapse',width:'100%',fontSize:11}}>
@@ -2236,20 +2233,42 @@ function PlanningView({planning,setPlanning,savePlanning,canManageSettings,roleL
                 {dayCols.map(d=><th key={d.k} style={{padding:6,borderBottom:'1px solid #e5e7eb'}}>{d.l}</th>)}
               </tr></thead>
               <tbody>
-                {patternRows.map(row=>{const p=patternFor(row.key);return(<tr key={row.key}>
+                {rows.map(row=>{const p=patternFor(row.key);return(<tr key={row.key}>
                   <td style={{padding:6,fontWeight:600,borderBottom:'0.5px solid #f0efe9'}}>{row.label}</td>
                   {dayCols.map(d=>(<td key={d.k} style={{padding:4,borderBottom:'0.5px solid #f0efe9'}}>
                     <textarea value={p[d.k]||''} onChange={e=>updatePatternDay(row.key,d.k,e.target.value)} style={{width:110,fontSize:11,padding:4,border:'0.5px solid #d4d2c8',borderRadius:5,minHeight:28}}/>
                   </td>))}
                 </tr>);})}
-                <tr>
+                {showSaid&&(<tr>
                   <td style={{padding:6,fontWeight:600,color:'#888'}}>Saïd</td>
                   <td colSpan={5} style={{padding:6,color:'#888',fontStyle:'italic'}}>Recopie automatiquement la valeur saisie sur tous les jours (pas de motif éditable ici).</td>
-                </tr>
+                </tr>)}
               </tbody>
             </table>
           </div>
-
+        </>);
+      }
+      const subTitle=(t)=>(<div style={{fontSize:12,fontWeight:700,color:'#555',textTransform:'uppercase',letterSpacing:'.05em',margin:'4px 0 8px'}}>{t}</div>);
+      const sectionDefs=[
+        {key:'direction',label:'Direction',render:()=>(<>
+          {subTitle('Horaires proposés')}
+          {renderGroupOptions('direction')}
+          {renderPatternTable(k=>k==='giovanni',false)}
+        </>)},
+        {key:'mdh',label:"Maître d'hôtel",render:()=>(<>
+          {subTitle('Horaires proposés')}
+          {renderGroupOptions('mdh')}
+          {renderPatternTable(k=>['julien','michele','quentin','jorgen'].includes(k),false)}
+        </>)},
+        {key:'clientele',label:'Chargée de clientèle',render:()=>(<>
+          {subTitle('Horaires proposés')}
+          {renderGroupOptions('clientele')}
+          {renderPatternTable(k=>k==='victoria',false)}
+        </>)},
+        {key:'chef',label:'Chef de rang',render:()=>(<>
+          {subTitle('Horaires proposés')}
+          {renderGroupOptions('chef')}
+          {renderPatternTable(k=>k==='_rang',false)}
           {(()=>{
             const allTasks=PLN_TACHE_OPTIONS.filter(t=>t!=='MEP Meuble');
             const dayNames={mar:'Mar',mer:'Mer',jeu:'Jeu',ven:'Ven',sam:'Sam'};
@@ -2289,7 +2308,12 @@ function PlanningView({planning,setPlanning,savePlanning,canManageSettings,roleL
               {!isDefault&&<button onClick={()=>commit({rotationRang:PLN_ROT_DEFAULT})} style={{...btn,marginBottom:6}}>Rétablir les réglages par défaut</button>}
             </>);
           })()}
-
+        </>)},
+        {key:'commis',label:'Commis',render:()=>(<>
+          {subTitle('Horaires proposés')}
+          {renderGroupOptions('commis')}
+          {renderGroupOptions('stagiaire')}
+          {renderPatternTable(k=>!patternBaseIds.includes(k)&&k!=='_rang',false)}
           <div style={{fontSize:12,fontWeight:700,color:'#555',textTransform:'uppercase',letterSpacing:'.05em',margin:'16px 0 8px'}}>Rotation Commis (lettre G / F)</div>
           <div style={{fontSize:11,color:'#888',marginBottom:8}}>Saisir "14:00 / G" ou "16:30 / F" (ou tout texte se terminant par "/ G" ou "/ F") sur le mardi d'un commis applique automatiquement les textes ci-dessous. Le jour "long" (rempli automatiquement) est vendredi pour G, samedi pour F ; l'autre jour reste à choisir manuellement.</div>
           <div style={{overflowX:'auto'}}>
@@ -2310,6 +2334,29 @@ function PlanningView({planning,setPlanning,savePlanning,canManageSettings,roleL
               </tbody>
             </table>
           </div>
+        </>)},
+        {key:'officier',label:'Officier',render:()=>(<>
+          {subTitle('Horaires proposés')}
+          {renderGroupOptions('officier')}
+          {renderPatternTable(()=>false,true)}
+        </>)},
+      ];
+      return(<div onClick={()=>setShowSettings(false)} style={{position:'fixed',inset:0,background:'rgba(20,20,20,.5)',zIndex:120,display:'flex',alignItems:'center',justifyContent:'center',padding:20,overflow:'auto'}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:'#fff',borderRadius:12,padding:20,maxWidth:640,width:'100%',boxShadow:'0 12px 40px rgba(0,0,0,.3)',maxHeight:'90vh',overflowY:'auto'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+            <span style={{fontWeight:700,fontSize:15}}>Paramètres du Planning</span>
+            <button onClick={()=>setShowSettings(false)} style={{border:'none',background:'none',fontSize:18,cursor:'pointer',color:'#888'}}>×</button>
+          </div>
+
+          {sectionDefs.map(sec=>{
+            const open=openSettingsSection===sec.key;
+            return(<div key={sec.key} style={{marginBottom:8}}>
+              <div onClick={()=>setOpenSettingsSection(open?null:sec.key)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 12px',borderRadius:8,background:open?'#1a1a1a':'#ececea',color:open?'#fff':'#555',cursor:'pointer',fontWeight:600,fontSize:12,textTransform:'uppercase',letterSpacing:'.05em'}}>
+                <span>{sec.label}</span><span style={{fontSize:14}}>{open?'▲':'▼'}</span>
+              </div>
+              {open&&<div style={{padding:'12px 2px 4px'}}>{sec.render()}</div>}
+            </div>);
+          })}
         </div>
       </div>);
     })()}
