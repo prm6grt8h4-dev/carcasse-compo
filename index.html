@@ -6557,9 +6557,11 @@ function App(){
       {tab==='planning'&&(<PlanningView planning={roleLinge?compoPlanning:planning} setPlanning={setPlanning} savePlanning={savePlanning} canManageSettings={isSuperAdmin(userEmail)} roleLinge={roleLinge}/>)}
 
       {tab==='linge'&&(<div style={{display:'flex',flexDirection:'column',gap:10}}>
-        <div style={{display:'flex',gap:6,justifyContent:'center',flexWrap:'wrap'}}>
+        <div style={{display:'flex',gap:6,justifyContent:'center'}}>
           <button onClick={()=>setLingeSubTab('journalier')} style={{padding:'7px 16px',fontSize:12,fontWeight:lingeSubTab==='journalier'?700:400,borderRadius:8,border:'none',cursor:'pointer',background:lingeSubTab==='journalier'?'#378ADD':'#ececea',color:lingeSubTab==='journalier'?'#fff':'#555'}}>Compte journalier</button>
           <button onClick={()=>setLingeSubTab('reception')} style={{padding:'7px 16px',fontSize:12,fontWeight:lingeSubTab==='reception'?700:400,borderRadius:8,border:'none',cursor:'pointer',background:lingeSubTab==='reception'?'#378ADD':'#ececea',color:lingeSubTab==='reception'?'#fff':'#555'}}>Réception du linge</button>
+        </div>
+        <div style={{display:'flex',gap:6,justifyContent:'center'}}>
           <button onClick={()=>setLingeSubTab('hs')} style={{padding:'7px 16px',fontSize:12,fontWeight:lingeSubTab==='hs'?700:400,borderRadius:8,border:'none',cursor:'pointer',background:lingeSubTab==='hs'?'#378ADD':'#ececea',color:lingeSubTab==='hs'?'#fff':'#555'}}>Linge HS</button>
           <button onClick={()=>setLingeSubTab('tache')} style={{padding:'7px 16px',fontSize:12,fontWeight:lingeSubTab==='tache'?700:400,borderRadius:8,border:'none',cursor:'pointer',background:lingeSubTab==='tache'?'#378ADD':'#ececea',color:lingeSubTab==='tache'?'#fff':'#555'}}>Linge taché</button>
         </div>
