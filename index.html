@@ -5018,7 +5018,7 @@ function findMenuTable(xmlDoc){
       if(tcs.length<2)continue;
       const c0=cellLinesText(tcs[0]).map(l=>l.text).join(' ').trim();
       const c1=cellLinesText(tcs[1]).map(l=>l.text).join(' ').trim();
-      if(/\d/.test(c0)&&/\bmenus?\b/i.test(c1)){headerIdx=i;break;}
+      if(/\d/.test(c0)&&(/\bmenus?\b/i.test(c1)||/(^|\s)[àa]\s+la\s+carte(\s|$)/i.test(c1))){headerIdx=i;break;} // "Menu …" ou "À la carte"
     }
     if(headerIdx===-1)continue;
     const trs=allTrs.slice(headerIdx); // ignore toute ligne avant l'en-tête
@@ -5164,7 +5164,8 @@ async function parseGroupeDocxFile(file){
   const arrival=field('Heure d\'arrivée :',ALL.filter(l=>l!=='Heure d\'arrivée :'));
   const paxRaw=field('Nombre de couverts :',ALL.filter(l=>l!=='Nombre de couverts :'));
   const tablesRaw=field('Nombre de table(s) :',ALL.filter(l=>l!=='Nombre de table(s) :'));
-  const obsRaw=field('Observations cuisine',[]);
+  // Le libellé varie selon les fiches : "Observations cuisine" ou simplement "Observations"
+  const obsRaw=headerText.includes('Observations cuisine')?field('Observations cuisine',[]):field('Observations',[]);
   const pax=(paxRaw.match(/\d+/)||[''])[0];
   const tables=(tablesRaw.match(/\d+/)||[''])[0];
   let obsLines=obsRaw.split('\n').map(s=>s.replace(/^[&:\s]*p[aâ]tisserie\s*:?\s*/i,'').trim()).filter(Boolean);
